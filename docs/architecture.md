@@ -82,4 +82,4 @@ Lanes never deletes Claude Code's data, which lives in `~/.claude`, expires unde
 
 The app owns the session processes:
 - **Closing the window** hides it to the notification area. The process, and every session, keeps running.
-- **Quitting** asks for confirmation when sessions are running, then terminates them. Each one remains resumable by ID.
+- **Quitting** terminates every session; each one remains resumable by ID. It asks first only when a session is mid-turn: its hooks report "working" *and* its terminal produced output in the last 10 seconds (Claude's spinner redraws continuously while it works). The output check filters out a stale "working" left by an interrupted turn.

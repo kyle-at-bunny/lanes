@@ -78,10 +78,6 @@ impl LanesApp {
         }
     }
 
-    pub(super) fn assistant_running(&self, cx: &App) -> bool {
-        self.assistant.as_ref().is_some_and(|t| !t.read(cx).session.has_exited())
-    }
-
     pub(super) fn render_assistant(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let exited = self.assistant.as_ref().is_some_and(|t| t.read(cx).session.has_exited());

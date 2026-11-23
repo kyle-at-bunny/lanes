@@ -1,9 +1,9 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::grid::Dimensions;
@@ -54,6 +54,8 @@ pub struct PtySession {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     dirty: Arc<AtomicBool>,
     exited: Arc<AtomicBool>,
+    /// Unix millis of the last byte claude wrote; its spinner redraws continuously while it works.
+    last_output: Arc<AtomicU64>,
     size: Mutex<GridSize>,
 }
 
@@ -76,6 +78,7 @@ impl PtySession {
             killer: Mutex::new(killer),
             dirty: Arc::new(AtomicBool::new(true)),
             exited: Arc::new(AtomicBool::new(false)),
+            last_output: Arc::new(AtomicU64::new(unix_millis())),
             size: Mutex::new(size),
         });
         session.start_reader(reader);
@@ -122,12 +125,16 @@ impl PtySession {
         self.exited.load(Ordering::Acquire)
     }
 
+    pub fn quiet_for(&self) -> Duration {
+        Duration::from_millis(unix_millis().saturating_sub(self.last_output.load(Ordering::Acquire)))
+    }
+
     pub fn kill(&self) {
         let _ = self.killer.lock().unwrap().kill();
     }
 
     fn start_reader(self: &Arc<Self>, mut reader: Box<dyn Read + Send>) {
-        let (term, parser, dirty) = (self.term.clone(), self.parser.clone(), self.dirty.clone());
+        let (term, parser, dirty, last_output) = (self.term.clone(), self.parser.clone(), self.dirty.clone(), self.last_output.clone());
         std::thread::spawn(move || {
             let mut buffer = vec![0u8; 64 * 1024];
             while let Ok(read) = reader.read(&mut buffer) {
@@ -137,6 +144,7 @@ impl PtySession {
                 let mut term = term.lock();
                 parser.lock().unwrap().advance(&mut *term, &buffer[..read]);
                 dirty.store(true, Ordering::Release);
+                last_output.store(unix_millis(), Ordering::Release);
             }
         });
     }
@@ -227,4 +235,8 @@ fn pty_size(size: GridSize) -> PtySize {
 
 fn window_size(size: GridSize) -> WindowSize {
     WindowSize { num_lines: size.rows as u16, num_cols: size.columns as u16, cell_width: 8, cell_height: 16 }
+}
+
+fn unix_millis() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default()
 }

@@ -152,7 +152,7 @@ Lanes never deletes Claude Code's own data. Claude Code keeps every conversation
 | | |
 | --- | --- |
 | **Close (✕)** | Hides to the system tray; sessions keep running. Click the tray icon to come back. |
-| **Quit** | In the top bar or tray menu. Asks first if sessions are running, and stopped sessions can be resumed later. |
+| **Quit** | In the top bar or tray menu. Asks first only if Claude is mid-turn in a session; idle or waiting sessions are just stopped. Either way, sessions can be resumed later. |
 | **Ctrl+Shift+C** / mouse selection | Copy from the terminal |
 | **Ctrl+V** | Paste text. When the clipboard has no text (an image, say), it passes through to Claude. |
 | **Shift+PgUp / PgDn**, wheel | Scrollback |

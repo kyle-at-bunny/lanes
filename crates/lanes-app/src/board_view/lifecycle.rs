@@ -6,9 +6,12 @@ use gpui_kit::component::{Sizable, h_flex};
 use gpui_kit::*;
 
 use super::{CardSession, LanesApp};
+use crate::terminal_view::TerminalView;
 use crate::tray::{Tray, TrayCommand};
 use crate::window_visibility;
 use lanes_core::state::AgentStatus;
+
+const ACTIVE_OUTPUT_WINDOW: Duration = Duration::from_secs(10);
 
 impl LanesApp {
     /// Closing the window hides it to the tray so sessions keep running; only Quit ends them.
@@ -53,13 +56,14 @@ impl LanesApp {
         }
     }
 
+    /// Quits straight away unless Claude is mid-turn somewhere; idle and waiting sessions are just stopped (they stay resumable).
     pub(super) fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let running = self.running_sessions(cx);
-        if running == 0 {
+        let working = self.working_sessions(cx);
+        if working == 0 {
             return self.quit_now(cx);
         }
         window_visibility::show(window);
-        self.quit_confirm = Some(running);
+        self.quit_confirm = Some(working);
         cx.notify();
     }
 
@@ -76,9 +80,15 @@ impl LanesApp {
         self.stop_assistant(cx);
     }
 
-    fn running_sessions(&self, cx: &App) -> usize {
-        let tickets = self.terminals.values().filter(|t| !t.read(cx).session.has_exited()).count();
-        tickets + usize::from(self.assistant_running(cx))
+    fn working_sessions(&self, cx: &App) -> usize {
+        self.terminals.values().chain(self.assistant.iter()).filter(|t| self.is_working(t.read(cx))).count()
+    }
+
+    /// Mid-turn: the hooks say working AND the terminal is still redrawing, which filters out a stale
+    /// "working" left behind when a turn is interrupted without a Stop hook.
+    fn is_working(&self, view: &TerminalView) -> bool {
+        let hook_working = self.board.states.hook(&view.session_id).is_some_and(|h| h.status == AgentStatus::Working);
+        !view.session.has_exited() && hook_working && view.session.quiet_for() < ACTIVE_OUTPUT_WINDOW
     }
 
     pub(super) fn update_tray_badge(&mut self, cx: &App) {
@@ -91,13 +101,14 @@ impl LanesApp {
     pub(super) fn render_quit_confirm(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let running = self.quit_confirm?;
         let noun = if running == 1 { "session is" } else { "sessions are" };
+        let message = format!("Claude is working in {running} {noun}. Quitting interrupts it; you can resume from the ticket's card later.");
         Some(
             h_flex()
                 .px_3()
                 .py_2()
                 .gap_3()
                 .bg(cx.theme().danger.opacity(0.15))
-                .child(div().flex_1().min_w_0().child(format!("{running} {noun} still running. Quitting stops them; you can resume them later from their cards.")))
+                .child(div().flex_1().min_w_0().child(message))
                 .child(Button::new("quit-anyway").label("Quit anyway").danger().small().on_click(cx.listener(|this, _, _, cx| this.quit_now(cx))))
                 .child(Button::new("cancel-quit").label("Cancel").ghost().small().on_click(cx.listener(|this, _, _, cx| {
                     this.quit_confirm = None;
