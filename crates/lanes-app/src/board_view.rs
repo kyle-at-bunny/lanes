@@ -300,6 +300,7 @@ impl LanesApp {
             let column = self.ticket(&id).map(|t| t.column.clone()).unwrap_or_default();
             self.load_transcript(&id, &column, cx);
         }
+        self.show_assistant = false;
         self.selected = Some(id);
         cx.notify();
     }
