@@ -8,7 +8,6 @@ claude_path = "claude"
 # effort = "medium"
 terminal = "embedded"        # "embedded" | "external" (Windows Terminal tabs)
 kickoff_inline_limit = 6000  # longer kickoff prompts are passed as a file reference
-auto_start_on_move = true    # moving a card into a stage column starts/resumes its session
 theme = "system"             # "system" | "light" | "dark" (the top-bar toggle updates this)
 terminal_theme = "match"     # "match" the app, or keep the terminal "dark" always
 cleanup_on_done = false      # offer "Finish & clean up" automatically when a card lands in the last column

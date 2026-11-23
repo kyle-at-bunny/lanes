@@ -33,7 +33,13 @@ fn run_subcommand(cli: &Cli, command: &Command) -> Result<()> {
 }
 
 fn run_gui(cli: &Cli) -> Result<()> {
-    let board = Board::open(cli.lanes_home()?, std::env::current_exe()?)?;
+    let board = match cli.lanes_home().and_then(|home| Board::open(home, std::env::current_exe()?)) {
+        Ok(board) => board,
+        Err(err) => {
+            show_startup_error(&format!("Lanes couldn't open the board:\n\n{err:#}\n\nFix the file and start Lanes again."));
+            return Err(err);
+        }
+    };
     gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
         gpui_kit::init(cx);
         bind_terminal_keys(cx);
@@ -67,3 +73,22 @@ fn attach_parent_console() {
 
 #[cfg(not(windows))]
 fn attach_parent_console() {}
+
+/// Errors before the window exists would otherwise vanish, since the GUI build has no console.
+#[cfg(windows)]
+fn show_startup_error(message: &str) {
+    unsafe extern "system" {
+        fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, kind: u32) -> i32;
+    }
+    const MB_ICONERROR: u32 = 0x10;
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (text, caption) = (wide(message), wide("Lanes"));
+    unsafe {
+        MessageBoxW(0, text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+    }
+}
+
+#[cfg(not(windows))]
+fn show_startup_error(message: &str) {
+    eprintln!("{message}");
+}

@@ -326,10 +326,6 @@ impl LanesApp {
         }
         self.reload_tickets(window, cx);
         self.selected = Some(ticket_id.to_string());
-        let starts_session = self.board.config.column(to).is_some_and(ColumnDef::has_session);
-        if starts_session && self.board.config.defaults.auto_start_on_move {
-            self.open_session(ticket_id, window, cx);
-        }
         if self.is_last_column(to) && self.board.config.defaults.cleanup_on_done {
             self.request_cleanup(ticket_id, window, cx);
         }

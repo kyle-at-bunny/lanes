@@ -30,7 +30,6 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | `effort` | none | Default `--effort` for every session. |
 | `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one as a Windows Terminal tab. |
 | `kickoff_inline_limit` | `6000` | First prompts longer than this many characters are written to a file, and Claude is asked to read it. |
-| `auto_start_on_move` | `true` | Moving a card into a stage column starts or resumes that stage's session. |
 | `theme` | `"system"` | `"system"`, `"light"` or `"dark"`. The top-bar button updates this. |
 | `terminal_theme` | `"match"` | `"match"` follows the app theme; `"dark"` keeps terminals dark in light mode. |
 | `cleanup_on_done` | `false` | Offer **Finish & clean up** automatically when a card lands in the last column. |

@@ -49,7 +49,6 @@ pub struct Defaults {
     pub effort: Option<String>,
     pub terminal: TerminalMode,
     pub kickoff_inline_limit: usize,
-    pub auto_start_on_move: bool,
     pub theme: ThemeSetting,
     pub terminal_theme: TerminalTheme,
     /// Offer "Finish & clean up" automatically when a ticket lands in the last column.
@@ -103,7 +102,6 @@ impl Default for Defaults {
             effort: None,
             terminal: TerminalMode::Embedded,
             kickoff_inline_limit: 6000,
-            auto_start_on_move: true,
             theme: ThemeSetting::System,
             terminal_theme: TerminalTheme::Match,
             cleanup_on_done: false,

@@ -77,8 +77,10 @@ cargo build --release -p lanes-app
 
 1. **Point the columns at your code.** On first run Lanes creates a starter board in `~/.lanes/board.toml`. Click **Edit board.toml**, set each stage's `cwd` to the folder its sessions should run in, and save. The board reloads automatically.
 2. **Create a ticket.** Click **New ticket** (or **From Jira**), and describe the work.
-3. **Start working.** Drag the card to **Plan / Arch**. A Claude session starts in that column's folder with the planning prompt and your ticket. Work with it until `plan.md` is written.
-4. **Move it on.** Drag the card to **Dev**. A *new* session starts, seeded with the plan. Drag it back to Plan later and the original planning session resumes.
+3. **Start working.** Drag the card to **Plan / Arch**, open it, and click **Start session**. A Claude session starts in that column's folder with the planning prompt and your ticket. Work with it until `plan.md` is written.
+4. **Move it on.** Drag the card to **Dev** and click **Start session** again. A *new* session starts, seeded with the plan. Move the card back to Plan later and **Resume session** brings back the original planning conversation.
+
+Moving a card never starts a session by itself. Sessions only start or resume when you click the button on the ticket.
 
 ## How it works
 
@@ -88,8 +90,8 @@ Backlog ──► Plan / Arch ──► Dev ──► Review ──► QA ──
                └────────────►└───────►└──► (back to Dev resumes the Dev session)
 ```
 
-- **Moving a card** into a stage column starts that stage's session: `claude --session-id <uuid>`, run in the column's `cwd`, with the column's prompt appended to the system prompt. Lanes remembers the session ID per (ticket, column).
-- **Coming back** to a column runs `claude --resume <uuid>`. If any of the column's inputs changed since that session last ran, Lanes sends a short re-entry message listing them.
+- **Starting a stage** (opening the ticket and clicking **Start session**) runs `claude --session-id <uuid>` in the column's `cwd`, with the column's prompt appended to the system prompt. Lanes remembers the session ID per (ticket, column).
+- **Coming back** to a column and clicking **Resume session** runs `claude --resume <uuid>`. If any of the column's inputs changed since that session last ran, Lanes sends a short re-entry message listing them.
 - **Sessions write their outputs** to the paths Lanes gives them (file artifacts) or with `lanes artifact set` (text artifacts). Later stages only ever see those artifacts.
 - **Status comes from Claude Code** through per-session hooks and a status line, injected with `--settings`, so your own Claude settings are untouched.
 
