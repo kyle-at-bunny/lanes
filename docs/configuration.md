@@ -33,7 +33,6 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | `theme` | `"system"` | `"system"`, `"light"` or `"dark"`. The top-bar button updates this. |
 | `terminal_theme` | `"match"` | `"match"` follows the app theme; `"dark"` keeps terminals dark in light mode. |
 | `cleanup_on_done` | `false` | Offer **Finish & clean up** automatically when a card lands in the last column. |
-| `delete_transcripts` | `false` | Also delete Claude Code's transcript files during cleanup. They are listed and confirmed first. |
 
 ## Artifacts
 

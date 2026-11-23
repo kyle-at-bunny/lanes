@@ -11,7 +11,6 @@ kickoff_inline_limit = 6000  # longer kickoff prompts are passed as a file refer
 theme = "system"             # "system" | "light" | "dark" (the top-bar toggle updates this)
 terminal_theme = "match"     # "match" the app, or keep the terminal "dark" always
 cleanup_on_done = false      # offer "Finish & clean up" automatically when a card lands in the last column
-delete_transcripts = false   # also delete Claude's transcript files during cleanup (listed and confirmed first)
 # A column can set `cleanup = "<command>"` (same templates as actions); it runs in that
 # column's session folder during "Finish & clean up", e.g. cleanup = "git worktree remove ."
 

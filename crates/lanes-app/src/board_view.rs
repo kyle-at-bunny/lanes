@@ -27,6 +27,7 @@ use uuid::Uuid;
 mod archive;
 mod assistant;
 mod folders;
+mod sessions_view;
 mod jira_import;
 mod lifecycle;
 
@@ -126,6 +127,10 @@ pub struct LanesApp {
     show_assistant: bool,
     config_mtime: Option<std::time::SystemTime>,
     folder_edit: Option<folders::FolderEdit>,
+    show_sessions: bool,
+    sessions: Vec<lanes_core::sessions::SessionInfo>,
+    delete_confirm: Option<String>,
+    assistant_reset_confirm: bool,
     _appearance: Subscription,
 }
 
@@ -157,6 +162,10 @@ impl LanesApp {
             show_assistant: false,
             config_mtime: None,
             folder_edit: None,
+            show_sessions: false,
+            sessions: Vec::new(),
+            delete_confirm: None,
+            assistant_reset_confirm: false,
             _appearance: appearance,
         };
         app.config_mtime = app.board_file_mtime();
@@ -474,13 +483,15 @@ impl Render for LanesApp {
             .child(self.render_top_bar(cx))
             .when_some(self.render_quit_confirm(cx), |this, banner| this.child(banner))
             .when_some(self.render_cleanup_confirm(cx), |this, banner| this.child(banner))
+            .when_some(self.render_delete_confirm(cx), |this, banner| this.child(banner))
             .when_some(self.render_pending_move(cx), |this, banner| this.child(banner))
             .child(
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .when(self.show_archive, |this| this.child(self.render_archive(cx)))
-                    .when(!self.show_archive, |this| {
+                    .when(self.show_sessions, |this| this.child(self.render_sessions(cx)))
+                    .when(self.show_archive && !self.show_sessions, |this| this.child(self.render_archive(cx)))
+                    .when(!self.show_archive && !self.show_sessions, |this| {
                         this.child(self.render_board(window, cx))
                             .when(self.show_assistant, |this| this.child(self.render_assistant(cx)))
                             .when(!self.show_assistant, |this| {
@@ -523,6 +534,10 @@ impl LanesApp {
             .when_some(limits.as_ref().and_then(|l| l.five_hour), |this, limit| this.child(usage_meter("5h", limit, cx)))
             .when_some(limits.as_ref().and_then(|l| l.seven_day), |this, limit| this.child(usage_meter("7d", limit, cx)))
             .when(limits.is_none(), |this| this.child(div().text_xs().text_color(cx.theme().muted_foreground).child("plan usage appears after the first response")))
+            .child({
+                let label = if self.show_sessions { "Back to board" } else { "Sessions" };
+                Button::new("toggle-sessions").label(label).ghost().small().on_click(cx.listener(|this, _, window, cx| this.toggle_sessions(window, cx)))
+            })
             .child({
                 let label = if self.show_archive { "Back to board" } else { "Archive" };
                 Button::new("toggle-archive").label(label).ghost().small().on_click(cx.listener(|this, _, window, cx| this.toggle_archive(window, cx)))
@@ -738,6 +753,12 @@ impl LanesApp {
                                 this.child(Button::new("finish-ticket").label("Finish & clean up").warning().xsmall().on_click(cx.listener(
                                     move |this, _, window, cx| this.request_cleanup(&ticket_id, window, cx),
                                 )))
+                            })
+                            .child({
+                                let ticket_id = ticket.id.clone();
+                                Button::new("delete-ticket").label("Delete").ghost().xsmall().on_click(cx.listener(move |this, _, _, cx| {
+                                    this.request_delete_ticket(&ticket_id, cx)
+                                }))
                             })
                             .child(Button::new("close-detail").label("Close").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                                 this.selected = None;

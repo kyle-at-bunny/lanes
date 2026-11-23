@@ -53,8 +53,6 @@ pub struct Defaults {
     pub terminal_theme: TerminalTheme,
     /// Offer "Finish & clean up" automatically when a ticket lands in the last column.
     pub cleanup_on_done: bool,
-    /// Also delete Claude's transcript files during cleanup (always confirmed first).
-    pub delete_transcripts: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -105,7 +103,6 @@ impl Default for Defaults {
             theme: ThemeSetting::System,
             terminal_theme: TerminalTheme::Match,
             cleanup_on_done: false,
-            delete_transcripts: false,
         }
     }
 }

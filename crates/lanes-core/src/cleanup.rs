@@ -6,10 +6,9 @@ use uuid::Uuid;
 use crate::actions::{self, ActionOutcome, PreparedAction};
 use crate::config::{ActionDef, BoardConfig};
 use crate::paths::LanesHome;
-use crate::state::StateStore;
+use crate::sessions;
 use crate::ticket::{Ticket, TicketStore};
 use crate::timeline::{self, EventKind};
-use crate::transcript;
 
 /// Everything cleanup will touch, computed up front so the user can confirm it.
 #[derive(Debug, Clone)]
@@ -18,7 +17,6 @@ pub struct CleanupPlan {
     pub session_ids: Vec<Uuid>,
     pub state_files: Vec<PathBuf>,
     pub commands: Vec<PreparedAction>,
-    pub transcripts: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -34,19 +32,9 @@ impl CleanupReport {
 }
 
 pub fn plan(home: &LanesHome, config: &BoardConfig, ticket: &Ticket) -> Result<CleanupPlan> {
-    let states = StateStore::new(home.clone());
     let session_ids: Vec<Uuid> = ticket.sessions.values().map(|r| r.id).collect();
-    let state_files = session_ids.iter().flat_map(|id| session_state_files(home, id)).filter(|p| p.exists()).collect();
-    let transcripts = if config.defaults.delete_transcripts {
-        ticket
-            .sessions
-            .values()
-            .filter_map(|r| transcript::locate(&r.id, &r.cwd, states.hook(&r.id).and_then(|h| h.transcript_path).as_deref()))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    Ok(CleanupPlan { ticket_id: ticket.id.clone(), session_ids, state_files, commands: cleanup_commands(home, config, ticket)?, transcripts })
+    let state_files = session_ids.iter().flat_map(|id| sessions::state_files(home, id)).filter(|p| p.exists()).collect();
+    Ok(CleanupPlan { ticket_id: ticket.id.clone(), session_ids, state_files, commands: cleanup_commands(home, config, ticket)? })
 }
 
 /// Runs cleanup after the caller has stopped the ticket's processes, then archives the ticket.
@@ -57,18 +45,13 @@ pub fn execute(home: &LanesHome, plan: &CleanupPlan) -> Result<CleanupReport> {
         timeline::record(home, &plan.ticket_id, EventKind::CleanupRun, format!("{} ({})", command.label, if outcome.success { "ok" } else { "failed" }))?;
         report.command_results.push((command.label.clone(), outcome));
     }
-    for file in plan.state_files.iter().chain(&plan.transcripts) {
+    for file in &plan.state_files {
         if std::fs::remove_file(file).is_ok() {
             report.removed_files += 1;
         }
     }
     TicketStore::new(home.clone()).archive(&plan.ticket_id)?;
     Ok(report)
-}
-
-fn session_state_files(home: &LanesHome, session_id: &Uuid) -> Vec<PathBuf> {
-    let state = home.state_dir();
-    ["hook", "status", "settings", "launch"].iter().map(|kind| state.join(format!("{session_id}.{kind}.json"))).collect()
 }
 
 /// One cleanup command per column the ticket had a session in, run in that session's folder.
@@ -121,7 +104,6 @@ id = "done"
         assert_eq!(plan.session_ids, [spec.session_id]);
         assert_eq!(plan.state_files.len(), 1);
         assert_eq!(plan.commands[0].command, "echo cleaning T-5");
-        assert!(plan.transcripts.is_empty());
 
         let report = execute(&home, &plan).unwrap();
         assert_eq!(report.removed_files, 1);

@@ -3,6 +3,7 @@ use std::time::SystemTime;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable, WindowExt, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use lanes_core::assistant;
 use lanes_core::config::TerminalMode;
@@ -71,15 +72,6 @@ impl LanesApp {
         }
     }
 
-    fn restart_assistant(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.stop_assistant(cx);
-        if let Err(err) = assistant::reset(&self.board.home) {
-            return self.notify_error(&err, window, cx);
-        }
-        self.ensure_assistant(window, cx);
-        cx.notify();
-    }
-
     pub(super) fn stop_assistant(&mut self, cx: &mut Context<Self>) {
         if let Some(terminal) = self.assistant.take() {
             terminal.read(cx).session.kill();
@@ -104,16 +96,22 @@ impl LanesApp {
                     .gap_2()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Board assistant"))
                     .child(div().flex_1())
-                    .child(Button::new("assistant-new").label("New conversation").ghost().xsmall().on_click(cx.listener(|this, _, window, cx| {
-                        this.restart_assistant(window, cx)
-                    })))
+                    .child(
+                        Button::new("assistant-reset")
+                            .label("Reset")
+                            .ghost()
+                            .xsmall()
+                            .tooltip("Drop this conversation and start the assistant fresh")
+                            .on_click(cx.listener(|this, _, _, cx| this.request_assistant_reset(cx))),
+                    )
                     .child(Button::new("assistant-hide").label("Hide").ghost().xsmall().on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_assistant(window, cx)
                     }))),
             )
             .child(div().text_xs().text_color(theme.muted_foreground).child(
                 "Ask it to create, move or edit tickets, add or change columns, or rewrite a column's prompt. Board edits reload automatically.",
-            ));
+            ))
+            .when_some(self.render_assistant_reset_confirm(cx), |this, confirm| this.child(confirm));
         let body = match (&self.assistant, exited) {
             (Some(terminal), false) => div().flex_1().min_h_0().p_1().child(terminal.clone()).into_any_element(),
             _ => div()

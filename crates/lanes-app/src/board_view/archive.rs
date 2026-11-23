@@ -62,6 +62,7 @@ impl LanesApp {
     pub(super) fn toggle_archive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_archive = !self.show_archive;
         if self.show_archive {
+            self.show_sessions = false;
             self.reload_archive(window, cx);
         }
         cx.notify();
@@ -124,6 +125,12 @@ impl LanesApp {
                     .child(Button::new(SharedString::from(format!("restore-{}", ticket.id))).label("Restore").outline().xsmall().on_click(cx.listener(
                         move |this, _, window, cx| this.restore_ticket(&id, window, cx),
                     )))
+                    .child({
+                        let id = ticket.id.clone();
+                        Button::new(SharedString::from(format!("delete-{}", ticket.id))).label("Delete").ghost().xsmall().on_click(cx.listener(
+                            move |this, _, _, cx| this.request_delete_ticket(&id, cx),
+                        ))
+                    })
                     .into_any_element()
             })
             .collect();
@@ -153,11 +160,6 @@ fn describe_plan(plan: &CleanupPlan) -> Vec<AnyElement> {
     lines.push(format!("• stop the ticket's running sessions ({sessions} recorded) and remove {files}"));
     lines.extend(plan.commands.iter().map(|c| format!("• run {}: {}", c.label, c.command)));
     lines.push("• move the ticket to the archive (artifacts and timeline are kept; you can restore it)".into());
-    if plan.transcripts.is_empty() {
-        lines.push("• keep Claude's transcripts".into());
-    } else {
-        lines.push(format!("• permanently delete {} Claude transcript files:", plan.transcripts.len()));
-        lines.extend(plan.transcripts.iter().map(|p| format!("    {}", p.display())));
-    }
+    lines.push("• leave Claude Code's own session data alone (it expires under Claude's retention setting)".into());
     lines.into_iter().map(|line| div().child(line).into_any_element()).collect()
 }

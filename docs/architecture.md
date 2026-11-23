@@ -68,6 +68,14 @@ The board assistant is a regular Claude session with:
 - the board folder as its working directory;
 - `--allowedTools "Bash(<lanes> --home <board>:*)"`, so it can run the CLI without prompting. Its file edits still go through Claude Code's normal approval.
 
+## Session housekeeping
+
+Lanes never deletes Claude Code's data, which lives in `~/.claude`, expires under Claude Code's own `cleanupPeriodDays` retention, and may be shared with sessions you ran outside Lanes. Housekeeping only changes Lanes' side:
+
+- **The inventory** (`lanes-core/src/sessions.rs`) gathers every session Lanes created. It combines ticket session records (on the board and archived), the assistant's `assistant.toml`, and the per-session settings files in `state/`, which Lanes writes for every launch. A session found only through a settings file is *unlinked*.
+- **Forgetting** a session removes its `state/` files and its link from the ticket or `assistant.toml`. The next start in that stage creates a new session.
+- **Deleting a ticket** stops its sessions, then removes the ticket folder and its sessions' state files.
+
 ## Window lifecycle
 
 The app owns the session processes:

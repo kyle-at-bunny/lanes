@@ -12,6 +12,7 @@ pub mod launch;
 pub mod paths;
 pub mod prompt;
 pub mod session;
+pub mod sessions;
 pub mod state;
 pub mod ticket;
 pub mod timeline;

@@ -40,6 +40,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".
 - **Finish & clean up.** Stop a finished ticket's sessions, run cleanup commands (e.g. `git worktree remove`) and archive the ticket, with a confirmation step and restore.
+- **Session housekeeping.** The **Sessions** view lists every Claude session Lanes has created, which ticket and stage it belongs to, and whether it's running. You can stop or forget any of them, and delete tickets outright.
 - **Lives in the tray.** Closing the window keeps sessions running, and the tray icon shows when one needs you.
 - **Plain files.** The board, prompts, tickets and artifacts are TOML and markdown under `~/.lanes`, easy to inspect, version or back up.
 
@@ -131,6 +132,20 @@ Click **Assistant** to open a Claude session that runs in your board folder and 
 > *"Make the Dev prompt insist on writing tests before code."*
 
 It runs the [`lanes` CLI](docs/cli.md) (pre-approved) and edits `board.toml` and prompts. Those edits still ask for your approval, and invalid configs are rejected without disturbing the running board.
+
+The assistant keeps one conversation and resumes it each time you open it. **Reset** (in its panel) drops that conversation so the next one starts fresh.
+
+## Cleaning up sessions
+
+Lanes never deletes Claude Code's own data. Claude Code keeps every conversation on disk and removes old ones itself after `cleanupPeriodDays` (30 days by default, set in `~/.claude/settings.json`). What Lanes manages is its *link* to each session:
+
+- **Delete** on a ticket (on the board or in the archive) stops its sessions and permanently removes the ticket, its artifacts, its timeline and Lanes' records of its sessions.
+- **Sessions** in the top bar lists every Claude session Lanes has created:
+  - which ticket and stage each belongs to (or the assistant);
+  - its folder, when it was last active, and whether it's running.
+- **Stop** ends a running session; you can resume it later.
+- **Forget** stops a session and unlinks it. For a ticket, that stage starts a fresh conversation next time.
+- **Forget all unlinked** tidies up sessions that no ticket or the assistant refers to any more.
 
 ## Using the app
 
