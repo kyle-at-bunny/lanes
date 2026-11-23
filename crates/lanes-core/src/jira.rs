@@ -37,6 +37,9 @@ pub struct JiraClient {
 
 impl JiraClient {
     pub fn from_config(config: &JiraConfig) -> Result<Self> {
+        if config.email.trim().is_empty() {
+            bail!("set email in the [jira] section of board.toml to use the Jira API");
+        }
         let token = std::env::var(&config.token_env)
             .ok()
             .filter(|t| !t.trim().is_empty())
@@ -106,6 +109,25 @@ pub fn parse_keys(input: &str) -> Result<Vec<String>> {
         }
     }
     Ok(keys)
+}
+
+/// Builds a ticket's Jira link from a browse URL, or from a bare key plus the board's Jira site.
+pub fn link_from(input: &str, site: Option<&str>) -> Result<JiraLink> {
+    let input = input.trim();
+    let key = match parse_keys(input)?.as_slice() {
+        [key] => key.clone(),
+        [] => bail!("no Jira issue given"),
+        _ => bail!("give one Jira issue, not several"),
+    };
+    let url = if input.starts_with("http://") || input.starts_with("https://") {
+        input.split(['?', '#']).next().unwrap_or(input).trim_end_matches('/').to_string()
+    } else {
+        let site = site.filter(|s| !s.trim().is_empty()).with_context(|| {
+            format!("'{key}' is a bare key: pass the full browse URL, or set site in the [jira] section of board.toml")
+        })?;
+        format!("{}/browse/{key}", site.trim_end_matches('/'))
+    };
+    Ok(JiraLink { key, url })
 }
 
 fn is_issue_key(candidate: &str) -> bool {
@@ -215,6 +237,17 @@ mod tests {
         assert_eq!(parse_keys("proj-1, PROJ-2  https://x.atlassian.net/browse/OPS-33?focused=1 PROJ-1").unwrap(), ["PROJ-1", "PROJ-2", "OPS-33"]);
         assert!(parse_keys("not a key").is_err());
         assert!(parse_keys("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn builds_links_from_urls_and_bare_keys() {
+        let from_url = link_from("https://acme.atlassian.net/browse/PROJ-12?focusedCommentId=3", None).unwrap();
+        assert_eq!(from_url, JiraLink { key: "PROJ-12".into(), url: "https://acme.atlassian.net/browse/PROJ-12".into() });
+        let from_key = link_from("proj-7", Some("https://acme.atlassian.net/")).unwrap();
+        assert_eq!(from_key.url, "https://acme.atlassian.net/browse/PROJ-7");
+        assert!(link_from("PROJ-7", None).unwrap_err().to_string().contains("full browse URL"));
+        assert!(link_from("PROJ-1 PROJ-2", Some("https://x")).is_err());
+        assert!(link_from("nonsense", Some("https://x")).is_err());
     }
 
     #[test]

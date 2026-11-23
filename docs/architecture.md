@@ -64,7 +64,9 @@ The app polls these small files once a second to update badges, context meters, 
 The app watches `board.toml`'s modification time. When it changes, the file is parsed and validated. A valid file replaces the active config; an invalid one is reported and ignored.
 
 The board assistant is a regular Claude session with:
-- a prompt describing the board, which lives in `prompts/assistant.md` and can be edited;
+- a prompt in two parts:
+  - the user's editable `prompts/assistant.md` (role and house rules);
+  - a built-in reference of the CLI, the config format and the Jira workflow, compiled into Lanes so it always matches the installed version;
 - the board folder as its working directory;
 - `--allowedTools "Bash(<lanes> --home <board>:*)"`, so it can run the CLI without prompting. Its file edits still go through Claude Code's normal approval.
 

@@ -35,7 +35,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
-- **Jira import.** Turn issue keys, or your open issues, into tickets. The issue link is shown on the ticket and passed to Claude.
+- **Jira import.** Turn issue keys, or your open issues, into tickets. The issue link is shown on the ticket and passed to Claude. No API token is needed if the board assistant has Jira tools (e.g. an Atlassian MCP server).
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
 - **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".

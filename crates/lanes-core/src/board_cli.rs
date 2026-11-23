@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 
 use crate::board::Board;
 use crate::config::BoardConfig;
+use crate::jira::{self, JiraLink};
 use crate::paths::LanesHome;
 use crate::ticket::Ticket;
 use crate::workdir;
@@ -30,7 +31,7 @@ pub enum TicketAction {
         #[arg(long)]
         column: Option<String>,
         #[command(flatten)]
-        folders: FolderArgs,
+        settings: SettingsArgs,
     },
     /// Move a ticket to another column. Refuses when required outputs are missing unless --force.
     Move {
@@ -47,19 +48,63 @@ pub enum TicketAction {
         #[arg(long)]
         description: Option<String>,
         #[command(flatten)]
-        folders: FolderArgs,
+        settings: SettingsArgs,
     },
 }
 
-/// Working-folder overrides; they apply to sessions started after the change.
+/// Ticket settings shared by create and edit. Folder changes apply to sessions started afterwards.
 #[derive(Debug, Default, Args)]
-pub struct FolderArgs {
+pub struct SettingsArgs {
     /// Folder for this ticket's new sessions in every stage ("" clears it). Templates like {{ ticket.id }} work.
     #[arg(long)]
     pub cwd: Option<String>,
     /// Folder for one stage, as COLUMN=FOLDER ("COLUMN=" clears it). Repeatable.
     #[arg(long = "column-cwd", value_name = "COLUMN=FOLDER")]
     pub column_cwd: Vec<String>,
+    /// Link the ticket to a Jira issue: a browse URL, or a key when [jira] site is set ("" removes the link).
+    #[arg(long)]
+    pub jira: Option<String>,
+}
+
+/// Validated settings, checked before anything is written.
+struct TicketChanges {
+    cwd: Option<String>,
+    column_cwd: Vec<(String, String)>,
+    jira: Option<Option<JiraLink>>,
+}
+
+impl TicketChanges {
+    fn parse(config: &BoardConfig, settings: &SettingsArgs) -> Result<Self> {
+        let mut column_cwd = Vec::new();
+        for entry in &settings.column_cwd {
+            let (column, folder) = entry.split_once('=').with_context(|| format!("--column-cwd expects COLUMN=FOLDER, got '{entry}'"))?;
+            require_column(config, column.trim())?;
+            column_cwd.push((column.trim().to_string(), folder.to_string()));
+        }
+        let site = config.jira.as_ref().map(|j| j.site.as_str());
+        let jira = match settings.jira.as_deref().map(str::trim) {
+            None => None,
+            Some("") => Some(None),
+            Some(input) => Some(Some(jira::link_from(input, site)?)),
+        };
+        Ok(Self { cwd: settings.cwd.clone(), column_cwd, jira })
+    }
+
+    fn apply(self, ticket: &mut Ticket) {
+        if let Some(cwd) = &self.cwd {
+            ticket.set_cwd(cwd);
+        }
+        for (column, folder) in &self.column_cwd {
+            ticket.set_column_cwd(column, folder);
+        }
+        if let Some(link) = self.jira {
+            ticket.jira = link;
+        }
+    }
+
+    fn changes_folders(&self) -> bool {
+        self.cwd.is_some() || !self.column_cwd.is_empty()
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -73,16 +118,17 @@ pub fn ticket(home: &LanesHome, action: &TicketAction) -> Result<()> {
     let output = match action {
         TicketAction::List { column, json } => list_tickets(&board, column.as_deref(), *json)?,
         TicketAction::Show { id } => show_ticket(&board, &board.tickets.load(id)?),
-        TicketAction::Create { title, id, description, column, folders } => {
+        TicketAction::Create { title, id, description, column, settings } => {
             let column = column.clone().unwrap_or_else(|| board.config.first_column().id.clone());
             require_column(&board.config, &column)?;
+            let changes = TicketChanges::parse(&board.config, settings)?;
             let mut ticket = board.tickets.create(id.as_deref(), title, description, &column)?;
-            apply_folders(&board.config, &mut ticket, folders)?;
+            changes.apply(&mut ticket);
             board.tickets.save(&ticket)?;
             format!("created {} in {}", ticket.id, board.column_title(&column))
         }
         TicketAction::Move { id, column, force } => move_ticket(&board, id, column, *force)?,
-        TicketAction::Edit { id, title, description, folders } => edit_ticket(&board, id, title.as_deref(), description.as_deref(), folders)?,
+        TicketAction::Edit { id, title, description, settings } => edit_ticket(&board, id, title.as_deref(), description.as_deref(), settings)?,
     };
     println!("{output}");
     Ok(())
@@ -185,30 +231,19 @@ fn move_ticket(board: &Board, id: &str, column: &str, force: bool) -> Result<Str
     Ok(format!("moved {id} to {} (open it in Lanes to start or resume that stage's session)", board.column_title(column)))
 }
 
-fn edit_ticket(board: &Board, id: &str, title: Option<&str>, description: Option<&str>, folders: &FolderArgs) -> Result<String> {
+fn edit_ticket(board: &Board, id: &str, title: Option<&str>, description: Option<&str>, settings: &SettingsArgs) -> Result<String> {
     let mut ticket = board.tickets.load(id)?;
+    let changes = TicketChanges::parse(&board.config, settings)?;
+    let note = if changes.changes_folders() { " (folder changes apply to sessions started from now on)" } else { "" };
     if let Some(title) = title {
         ticket.title = title.trim().to_string();
     }
     if let Some(description) = description {
         ticket.description = description.trim().to_string();
     }
-    apply_folders(&board.config, &mut ticket, folders)?;
+    changes.apply(&mut ticket);
     board.tickets.save(&ticket)?;
-    let note = if folders.cwd.is_some() || !folders.column_cwd.is_empty() { " (folder changes apply to sessions started from now on)" } else { "" };
     Ok(format!("updated {id}{note}"))
-}
-
-fn apply_folders(config: &BoardConfig, ticket: &mut Ticket, folders: &FolderArgs) -> Result<()> {
-    if let Some(cwd) = &folders.cwd {
-        ticket.set_cwd(cwd);
-    }
-    for entry in &folders.column_cwd {
-        let (column, folder) = entry.split_once('=').with_context(|| format!("--column-cwd expects COLUMN=FOLDER, got '{entry}'"))?;
-        require_column(config, column.trim())?;
-        ticket.set_column_cwd(column.trim(), folder);
-    }
-    Ok(())
 }
 
 fn require_column(config: &BoardConfig, column: &str) -> Result<()> {
@@ -220,6 +255,29 @@ fn require_column(config: &BoardConfig, column: &str) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn create_and_edit_link_jira_and_bad_links_create_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = LanesHome::new(dir.path());
+        std::fs::write(home.board_file(), "[jira]\nsite = \"https://acme.atlassian.net\"\n[[columns]]\nid = \"backlog\"\n").unwrap();
+        let board = Board::open(home.clone(), PathBuf::from("lanes")).unwrap();
+        let with_jira = |value: &str| SettingsArgs { jira: Some(value.into()), ..Default::default() };
+
+        let changes = TicketChanges::parse(&board.config, &with_jira("PROJ-5")).unwrap();
+        let mut ticket = board.tickets.create(Some("PROJ-5"), "t", "", "backlog").unwrap();
+        changes.apply(&mut ticket);
+        board.tickets.save(&ticket).unwrap();
+        assert_eq!(board.tickets.load("PROJ-5").unwrap().jira.unwrap().url, "https://acme.atlassian.net/browse/PROJ-5");
+
+        edit_ticket(&board, "PROJ-5", None, None, &with_jira("")).unwrap();
+        assert!(board.tickets.load("PROJ-5").unwrap().jira.is_none());
+        edit_ticket(&board, "PROJ-5", None, None, &with_jira("https://other.atlassian.net/browse/OPS-9")).unwrap();
+        assert_eq!(board.tickets.load("PROJ-5").unwrap().jira.unwrap().key, "OPS-9");
+
+        assert!(TicketChanges::parse(&board.config, &with_jira("not a key")).is_err());
+        assert_eq!(board.tickets.list().unwrap().len(), 1);
+    }
 
     #[test]
     fn moves_respect_missing_outputs_and_config_check_finds_missing_prompts() {

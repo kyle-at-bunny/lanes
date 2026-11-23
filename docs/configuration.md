@@ -179,7 +179,21 @@ cleanup = "git worktree remove --force ../wt-{{ ticket.id }}"
 
 ## `[jira]`
 
-Enables **From Jira**, which imports issues as tickets. Lanes only reads from Jira and never changes issues.
+Tickets can be linked to Jira issues. Lanes only reads from Jira and never changes issues. There are two ways to create linked tickets.
+
+**Without an API token, through the board assistant.** If your Claude Code has Jira tools, such as an Atlassian MCP server, ask the **Assistant**:
+- "import my open Jira issues";
+- "create a ticket for PROJ-123";
+- "link T-007 to PROJ-88".
+
+It reads the issue with its own tools, then runs `lanes ticket create … --jira <url>` or `lanes ticket edit … --jira <url>`. Lanes needs no token. Setting just `site` lets bare keys like `PROJ-123` work in `--jira`:
+
+```toml
+[jira]
+site = "https://your-site.atlassian.net"
+```
+
+**With an API token, through the From Jira button.** Lanes calls the Jira API itself:
 
 ```toml
 [jira]
@@ -189,7 +203,7 @@ token_env = "LANES_JIRA_TOKEN"     # name of the env var holding an API token (d
 open_issues_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 ```
 
-Create an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>, store it in the environment variable named by `token_env`, then restart Lanes. The token is never written to disk by Lanes.
+Create an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>, store it in the environment variable named by `token_env`, then restart Lanes. The token is never written to disk by Lanes. Without a token, **From Jira** points you to the assistant instead.
 
 Imported tickets:
 - use the issue key as their ID and the summary as their title;

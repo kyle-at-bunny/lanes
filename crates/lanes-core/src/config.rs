@@ -24,6 +24,8 @@ pub struct BoardConfig {
 pub struct JiraConfig {
     /// e.g. https://your-site.atlassian.net
     pub site: String,
+    /// Only needed for the API-token import ("From Jira"); linking tickets needs just `site`.
+    #[serde(default)]
     pub email: String,
     /// Name of the env var holding the API token; the token itself never goes in board.toml.
     #[serde(default = "default_token_env")]
@@ -31,6 +33,14 @@ pub struct JiraConfig {
     /// JQL for the "my open issues" picker.
     #[serde(default = "default_open_issues_jql")]
     pub open_issues_jql: String,
+}
+
+impl JiraConfig {
+    /// Whether the API-token import can work: an email plus a token in the configured env var.
+    pub fn has_api_credentials(&self) -> bool {
+        let token = std::env::var(&self.token_env).ok().filter(|t| !t.trim().is_empty());
+        !self.email.trim().is_empty() && token.is_some()
+    }
 }
 
 fn default_token_env() -> String {

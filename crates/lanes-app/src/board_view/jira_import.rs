@@ -21,9 +21,9 @@ pub(super) struct JiraForm {
 
 impl LanesApp {
     pub(super) fn show_jira_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.board.config.jira.is_none() {
-            let hint = "Add a [jira] section (site, email) to board.toml and set LANES_JIRA_TOKEN to import from Jira.";
-            return window.push_notification(Notification::warning(hint), cx);
+        if !self.board.config.jira.as_ref().is_some_and(|j| j.has_api_credentials()) {
+            let hint = "Lanes has no Jira API token. Open the Assistant and ask it to import or link issues; it can use your Jira tools (e.g. an Atlassian MCP server). To use this button instead, set [jira] site and email in board.toml and a token in LANES_JIRA_TOKEN.";
+            return window.push_notification(Notification::info(hint), cx);
         }
         let keys = cx.new(|cx| InputState::new(window, cx).placeholder("Issue keys or links, e.g. PROJ-123, PROJ-456"));
         keys.update(cx, |state, cx| state.focus(window, cx));

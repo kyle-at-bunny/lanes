@@ -11,6 +11,8 @@ use crate::session::{LaunchKind, LaunchSpec, lanes_command, write_session_settin
 
 pub const PROMPT_FILE: &str = "prompts/assistant.md";
 const DEFAULT_PROMPT: &str = include_str!("../assets/prompts/assistant.md");
+/// Appended after the user's editable prompt, so command and config docs stay current across upgrades.
+const REFERENCE: &str = include_str!("../assets/assistant_reference.md");
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct AssistantRecord {
@@ -62,7 +64,7 @@ fn write_system_prompt(home: &LanesHome, lanes: &str) -> Result<String> {
     if !template_path.exists() {
         write_atomic(&template_path, DEFAULT_PROMPT.as_bytes())?;
     }
-    let template = std::fs::read_to_string(&template_path)?;
+    let template = format!("{}\n\n{REFERENCE}", std::fs::read_to_string(&template_path)?.trim_end());
     let rendered = Environment::new()
         .render_str(&template, context! { lanes => lanes, home => portable(home.root()), board_file => portable(&home.board_file()) })
         .context("rendering the assistant prompt")?;
@@ -97,15 +99,19 @@ mod tests {
         let prompt = std::fs::read_to_string(home.state_dir().join("assistant.system.md")).unwrap();
         assert!(prompt.contains("C:/bin/lanes.exe --home") && prompt.contains("board.toml"));
         assert!(prompt.contains("{{ ticket.id }}"), "literal template syntax survives rendering");
+        assert!(prompt.contains("You are the Lanes board assistant") && prompt.contains("--jira <browse URL>"), "user prompt then built-in reference");
         assert!(home.resolve(PROMPT_FILE).exists());
 
         let again = prepare(&home, &config, exe).unwrap();
         assert_eq!((again.kind, again.session_id), (LaunchKind::Resume, first.session_id));
         assert_eq!(current_session(&home), Some(first.session_id));
 
+        std::fs::write(home.resolve(PROMPT_FILE), "Custom house rules.").unwrap();
         reset(&home).unwrap();
         let fresh = prepare(&home, &config, exe).unwrap();
         assert_eq!(fresh.kind, LaunchKind::New);
         assert_ne!(fresh.session_id, first.session_id);
+        let customised = std::fs::read_to_string(home.state_dir().join("assistant.system.md")).unwrap();
+        assert!(customised.starts_with("Custom house rules.") && customised.contains("# Lanes reference"));
     }
 }
