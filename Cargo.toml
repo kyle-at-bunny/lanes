@@ -1,0 +1,19 @@
+[workspace]
+members = ["crates/lanes-core", "crates/lanes-app"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+repository = "https://github.com/kyle-at-bunny/lanes"
+description = "A kanban board for real, interactive Claude Code sessions"
+authors = ["kyle-at-bunny"]
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+dirs = "7"

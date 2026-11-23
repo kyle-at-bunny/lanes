@@ -1,0 +1,105 @@
+# Lanes board configuration. Edit freely; the app reloads it on save.
+# A column with a `cwd` gets one interactive Claude session per ticket.
+# Columns without a `cwd` (backlog, done) are plain holding lanes.
+
+[defaults]
+claude_path = "claude"
+# model = "opus"
+# effort = "medium"
+terminal = "embedded"        # "embedded" | "external" (Windows Terminal tabs)
+kickoff_inline_limit = 6000  # longer kickoff prompts are passed as a file reference
+auto_start_on_move = true    # moving a card into a stage column starts/resumes its session
+theme = "system"             # "system" | "light" | "dark" (the top-bar toggle updates this)
+terminal_theme = "match"     # "match" the app, or keep the terminal "dark" always
+cleanup_on_done = false      # offer "Finish & clean up" automatically when a card lands in the last column
+delete_transcripts = false   # also delete Claude's transcript files during cleanup (listed and confirmed first)
+# A column can set `cleanup = "<command>"` (same templates as actions); it runs in that
+# column's session folder during "Finish & clean up", e.g. cleanup = "git worktree remove ."
+
+# Artifacts are the only thing that moves between columns.
+# type = "file" -> a markdown file in the ticket's artifacts folder
+# type = "text" -> a short value saved with `lanes artifact set <name> "<text>"`
+# The description tells the producing session what to write and the consuming session what it is.
+
+[artifacts.plan]
+type = "file"
+inline = true
+description = "Implementation plan: goal, approach, files to change, risks, and how to verify."
+
+[artifacts.branch]
+type = "text"
+description = "Repository path and branch name holding the implementation, plus the PR URL if one was opened."
+
+[artifacts.review_notes]
+type = "file"
+inline = true
+description = "Review findings the dev stage must address, most important first."
+
+[artifacts.qa_result]
+type = "text"
+description = "PASS or FAIL, followed by a short summary of what was tested and anything that failed."
+
+[[columns]]
+id = "backlog"
+title = "Backlog"
+
+[[columns]]
+id = "plan"
+title = "Plan / Arch"
+cwd = "~/projects/my-app"
+prompt = "prompts/plan.md"
+produces = ["plan"]
+permission_mode = "plan"
+
+[[columns]]
+id = "dev"
+title = "Dev"
+cwd = "~/projects/my-app"
+prompt = "prompts/dev.md"
+consumes = ["plan", "review_notes?", "qa_result?"]
+produces = ["branch"]
+
+[[columns]]
+id = "review"
+title = "Review"
+cwd = "~/projects/my-app"
+prompt = "prompts/review.md"
+consumes = ["plan", "branch"]
+produces = ["review_notes"]
+
+[[columns]]
+id = "qa"
+title = "QA"
+cwd = "~/projects/my-app-staging"
+prompt = "prompts/qa.md"
+consumes = ["plan", "branch"]
+produces = ["qa_result"]
+
+[[columns]]
+id = "done"
+title = "Done"
+
+# Action buttons shown on a ticket's detail panel. User-triggered only.
+# `command` runs through cmd.exe in the ticket's session folder (or `cwd`, if set).
+# Templates can use {{ ticket.id }}, {{ ticket.title }}, {{ column.id }}, {{ cwd }}
+# and {{ artifacts.<name> }} (text artifacts by value, file artifacts by path).
+# Put [[columns.actions]] under a column for stage-specific actions; [[actions]] apply everywhere.
+
+[[actions]]
+label = "Open folder"
+command = 'start "" .'
+
+[[actions]]
+label = "Open in VS Code"
+command = "code ."
+
+# Jira import ("From Jira" button). The API token is read from the env var named by
+# token_env (default LANES_JIRA_TOKEN), never from this file. Restart Lanes after setting it.
+# [jira]
+# site = "https://your-site.atlassian.net"
+# email = "you@company.com"
+# open_issues_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+
+# [[columns.actions]]   (place directly after a [[columns]] entry, e.g. dev)
+# label = "Git status"
+# command = "git status --short --branch"
