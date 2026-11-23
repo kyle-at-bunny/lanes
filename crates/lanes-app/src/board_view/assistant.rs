@@ -8,7 +8,7 @@ use gpui_kit::*;
 use lanes_core::assistant;
 use lanes_core::config::TerminalMode;
 
-use super::{DETAIL_MIN_WIDTH, DETAIL_WIDTH_SHARE, LanesApp};
+use super::LanesApp;
 use crate::pty::{GridSize, PtySession};
 use crate::terminal_view::TerminalView;
 
@@ -126,10 +126,7 @@ impl LanesApp {
                 .into_any_element(),
         };
         v_flex()
-            .w(relative(DETAIL_WIDTH_SHARE))
-            .min_w(px(DETAIL_MIN_WIDTH))
-            .flex_none()
-            .h_full()
+            .size_full()
             .border_l_1()
             .border_color(theme.border)
             .child(header)

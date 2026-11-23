@@ -28,6 +28,7 @@ mod archive;
 mod assistant;
 mod folders;
 mod sessions_view;
+mod split;
 mod jira_import;
 mod lifecycle;
 
@@ -95,8 +96,7 @@ fn event_label(kind: EventKind) -> &'static str {
 
 const COLUMN_MIN_WIDTH: f32 = 200.;
 const BOARD_MIN_WIDTH: f32 = 320.;
-const DETAIL_WIDTH_SHARE: f32 = 0.5;
-const DETAIL_MIN_WIDTH: f32 = 460.;
+const DETAIL_MIN_WIDTH: f32 = 420.;
 
 /// What a card shows about its current column's session.
 enum CardSession {
@@ -131,11 +131,16 @@ pub struct LanesApp {
     sessions: Vec<lanes_core::sessions::SessionInfo>,
     delete_confirm: Option<String>,
     assistant_reset_confirm: bool,
+    split: Entity<gpui_kit::component::resizable::ResizableState>,
+    ui_prefs: lanes_core::ui_prefs::UiPrefs,
+    _split_resized: Subscription,
     _appearance: Subscription,
 }
 
 impl LanesApp {
     pub fn new(board: Board, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (split, split_resized) = Self::create_split(cx);
+        let ui_prefs = lanes_core::ui_prefs::UiPrefs::load(&board.home);
         let appearance = cx.observe_window_appearance(window, |app: &mut Self, window, cx| {
             if app.board.config.defaults.theme == ThemeSetting::System {
                 app.apply_theme(window, cx);
@@ -166,6 +171,9 @@ impl LanesApp {
             sessions: Vec::new(),
             delete_confirm: None,
             assistant_reset_confirm: false,
+            split,
+            ui_prefs,
+            _split_resized: split_resized,
             _appearance: appearance,
         };
         app.config_mtime = app.board_file_mtime();
@@ -492,11 +500,9 @@ impl Render for LanesApp {
                     .when(self.show_sessions, |this| this.child(self.render_sessions(cx)))
                     .when(self.show_archive && !self.show_sessions, |this| this.child(self.render_archive(cx)))
                     .when(!self.show_archive && !self.show_sessions, |this| {
-                        this.child(self.render_board(window, cx))
-                            .when(self.show_assistant, |this| this.child(self.render_assistant(cx)))
-                            .when(!self.show_assistant, |this| {
-                                this.when_some(self.selected.clone(), |this, id| this.child(self.render_detail(&id, window, cx)))
-                            })
+                        let board = self.render_board(window, cx).into_any_element();
+                        let panel = self.render_right_panel(window, cx);
+                        this.child(self.render_split(board, panel, window))
                     }),
             )
     }
@@ -730,10 +736,7 @@ impl LanesApp {
         let terminal = self.live_terminal(ticket);
         let theme = cx.theme().clone();
         v_flex()
-            .w(relative(DETAIL_WIDTH_SHARE))
-            .min_w(px(DETAIL_MIN_WIDTH))
-            .flex_none()
-            .h_full()
+            .size_full()
             .border_l_1()
             .border_color(theme.border)
             .child(

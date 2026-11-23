@@ -157,6 +157,7 @@ Lanes never deletes Claude Code's own data. Claude Code keeps every conversation
 | **Ctrl+V** | Paste text. When the clipboard has no text (an image, say), it passes through to Claude. |
 | **Shift+PgUp / PgDn**, wheel | Scrollback |
 | **Theme button** | Cycles Auto (follows Windows) → Light → Dark |
+| **Panel divider** | Drag the edge between the board and the ticket/assistant panel to resize it. The width is remembered (in `~/.lanes/ui.toml`). |
 
 ## Platform support
 
