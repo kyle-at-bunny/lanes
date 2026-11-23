@@ -17,12 +17,18 @@ pub struct Ticket {
     pub description: String,
     pub column: String,
     pub created_at: u64,
+    /// Working folder for this ticket's new sessions in every stage, overriding the column's `cwd`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     #[serde(default)]
     pub history: Vec<Move>,
     #[serde(default)]
     pub sessions: BTreeMap<String, SessionRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jira: Option<JiraLink>,
+    /// Per-column working folders, taking precedence over `cwd` for that column.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub column_cwd: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -54,6 +60,20 @@ impl Ticket {
         }
         self.history.push(Move { from: Some(self.column.clone()), to: column.to_string(), at: now_unix() });
         self.column = column.to_string();
+    }
+
+    /// Sets the all-stages working folder; blank clears it.
+    pub fn set_cwd(&mut self, folder: &str) {
+        let folder = folder.trim();
+        self.cwd = (!folder.is_empty()).then(|| folder.to_string());
+    }
+
+    /// Sets one stage's working folder; blank clears it.
+    pub fn set_column_cwd(&mut self, column: &str, folder: &str) {
+        match folder.trim() {
+            "" => self.column_cwd.remove(column),
+            folder => self.column_cwd.insert(column.to_string(), folder.to_string()),
+        };
     }
 
     pub fn last_arrival_from(&self) -> Option<&str> {
@@ -120,8 +140,10 @@ impl TicketStore {
             column: column.to_string(),
             created_at: now_unix(),
             history: vec![Move { from: None, to: column.to_string(), at: now_unix() }],
+            cwd: None,
             sessions: BTreeMap::new(),
             jira: None,
+            column_cwd: BTreeMap::new(),
         };
         self.save(&ticket)?;
         timeline::record(&self.home, &ticket.id, EventKind::Created, format!("created in {column}"))?;
@@ -178,6 +200,19 @@ fn list_in(dir: &std::path::Path) -> Result<Vec<Ticket>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_overrides_round_trip_through_ticket_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = TicketStore::new(LanesHome::new(dir.path()));
+        let mut ticket = store.create(Some("T-1"), "t", "", "dev").unwrap();
+        ticket.cwd = Some("D:/repos/app".into());
+        ticket.column_cwd.insert("qa".into(), "E:/staging".into());
+        store.save(&ticket).unwrap();
+        let loaded = store.load("T-1").unwrap();
+        assert_eq!(loaded.cwd.as_deref(), Some("D:/repos/app"));
+        assert_eq!(loaded.column_cwd["qa"], "E:/staging");
+    }
 
     #[test]
     fn archives_and_restores_without_reusing_ids() {

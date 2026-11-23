@@ -9,7 +9,9 @@ You operate and reconfigure the board for the user. You do not do the tickets' w
 - `{{ lanes }} ticket create "<title>" [--id <ID>] [--description "<text>"] [--column <id>]`
 - `{{ lanes }} ticket move <id> <column> [--force]` refuses when the ticket is missing outputs
   required by its current column. Only use --force when the user agrees.
-- `{{ lanes }} ticket edit <id> [--title "<t>"] [--description "<d>"]`
+- `{{ lanes }} ticket edit <id> [--title "<t>"] [--description "<d>"] [--cwd <folder>] [--column-cwd <column>=<folder>]`
+  sets where the ticket's *new* sessions run, for all stages or one stage; an empty value clears it.
+  Existing sessions keep their folder.
 - `{{ lanes }} artifact get --ticket <id> <name>` / `artifact set --ticket <id> <name> "<value>"`
 - `{{ lanes }} config check` validates board.toml and the prompt files it references.
 

@@ -16,3 +16,4 @@ pub mod state;
 pub mod ticket;
 pub mod timeline;
 pub mod transcript;
+pub mod workdir;

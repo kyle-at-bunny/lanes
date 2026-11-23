@@ -10,6 +10,7 @@ use crate::paths::{COLUMN_ENV, HOME_ENV, LanesHome, TICKET_ENV, expand_tilde, no
 use crate::prompt::PromptBuilder;
 use crate::ticket::{SessionRecord, Ticket};
 use crate::timeline::{self, EventKind};
+use crate::workdir;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LaunchKind {
@@ -57,8 +58,14 @@ impl SessionLauncher<'_> {
 
     fn new_spec(&self, ticket: &Ticket, column: &ColumnDef) -> Result<LaunchSpec> {
         let session_id = Uuid::new_v4();
-        let cwd = expand_tilde(column.cwd.as_deref().unwrap_or("~"));
-        ensure!(cwd.is_dir(), "working directory {} for column '{}' does not exist", cwd.display(), column.id);
+        let cwd = workdir::resolve(ticket, column)?.unwrap_or_else(|| expand_tilde("~"));
+        ensure!(
+            cwd.is_dir(),
+            "working folder {} for {} in '{}' does not exist; create it, or change the folder on the ticket or column",
+            cwd.display(),
+            ticket.id,
+            column.title()
+        );
         let prompts = self.prompts(ticket, column);
         let system_file = self.write_session_file(ticket, column, "system.md", &prompts.system_prompt()?)?;
         let kickoff = prompts.kickoff()?;

@@ -1,12 +1,13 @@
 use std::fmt::Write as _;
 
 use anyhow::{Context, Result, bail};
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 use crate::board::Board;
 use crate::config::BoardConfig;
 use crate::paths::LanesHome;
 use crate::ticket::Ticket;
+use crate::workdir;
 
 #[derive(Debug, Subcommand)]
 pub enum TicketAction {
@@ -28,6 +29,8 @@ pub enum TicketAction {
         description: String,
         #[arg(long)]
         column: Option<String>,
+        #[command(flatten)]
+        folders: FolderArgs,
     },
     /// Move a ticket to another column. Refuses when required outputs are missing unless --force.
     Move {
@@ -36,14 +39,27 @@ pub enum TicketAction {
         #[arg(long)]
         force: bool,
     },
-    /// Change a ticket's title or description.
+    /// Change a ticket's title, description or working folders.
     Edit {
         id: String,
         #[arg(long)]
         title: Option<String>,
         #[arg(long)]
         description: Option<String>,
+        #[command(flatten)]
+        folders: FolderArgs,
     },
+}
+
+/// Working-folder overrides; they apply to sessions started after the change.
+#[derive(Debug, Default, Args)]
+pub struct FolderArgs {
+    /// Folder for this ticket's new sessions in every stage ("" clears it). Templates like {{ ticket.id }} work.
+    #[arg(long)]
+    pub cwd: Option<String>,
+    /// Folder for one stage, as COLUMN=FOLDER ("COLUMN=" clears it). Repeatable.
+    #[arg(long = "column-cwd", value_name = "COLUMN=FOLDER")]
+    pub column_cwd: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -57,14 +73,16 @@ pub fn ticket(home: &LanesHome, action: &TicketAction) -> Result<()> {
     let output = match action {
         TicketAction::List { column, json } => list_tickets(&board, column.as_deref(), *json)?,
         TicketAction::Show { id } => show_ticket(&board, &board.tickets.load(id)?),
-        TicketAction::Create { title, id, description, column } => {
+        TicketAction::Create { title, id, description, column, folders } => {
             let column = column.clone().unwrap_or_else(|| board.config.first_column().id.clone());
             require_column(&board.config, &column)?;
-            let ticket = board.tickets.create(id.as_deref(), title, description, &column)?;
+            let mut ticket = board.tickets.create(id.as_deref(), title, description, &column)?;
+            apply_folders(&board.config, &mut ticket, folders)?;
+            board.tickets.save(&ticket)?;
             format!("created {} in {}", ticket.id, board.column_title(&column))
         }
         TicketAction::Move { id, column, force } => move_ticket(&board, id, column, *force)?,
-        TicketAction::Edit { id, title, description } => edit_ticket(&board, id, title.as_deref(), description.as_deref())?,
+        TicketAction::Edit { id, title, description, folders } => edit_ticket(&board, id, title.as_deref(), description.as_deref(), folders)?,
     };
     println!("{output}");
     Ok(())
@@ -143,6 +161,11 @@ fn show_ticket(board: &Board, ticket: &Ticket) -> String {
     for (column, record) in &ticket.sessions {
         let _ = writeln!(out, "session[{}]: {} in {}", board.column_title(column), record.id, record.cwd.display());
     }
+    for column in board.config.columns.iter().filter(|c| c.has_session()) {
+        if let (Ok(Some(folder)), Some(source)) = (workdir::resolve(ticket, column), workdir::source(ticket, column)) {
+            let _ = writeln!(out, "new {} sessions start in: {} ({})", column.title(), folder.display(), source.describe());
+        }
+    }
     let store = board.artifacts(&ticket.id);
     for name in board.config.artifacts.keys() {
         let status = if store.read(name).ok().flatten().is_some() { "present" } else { "missing" };
@@ -162,7 +185,7 @@ fn move_ticket(board: &Board, id: &str, column: &str, force: bool) -> Result<Str
     Ok(format!("moved {id} to {} (open it in Lanes to start or resume that stage's session)", board.column_title(column)))
 }
 
-fn edit_ticket(board: &Board, id: &str, title: Option<&str>, description: Option<&str>) -> Result<String> {
+fn edit_ticket(board: &Board, id: &str, title: Option<&str>, description: Option<&str>, folders: &FolderArgs) -> Result<String> {
     let mut ticket = board.tickets.load(id)?;
     if let Some(title) = title {
         ticket.title = title.trim().to_string();
@@ -170,8 +193,22 @@ fn edit_ticket(board: &Board, id: &str, title: Option<&str>, description: Option
     if let Some(description) = description {
         ticket.description = description.trim().to_string();
     }
+    apply_folders(&board.config, &mut ticket, folders)?;
     board.tickets.save(&ticket)?;
-    Ok(format!("updated {id}"))
+    let note = if folders.cwd.is_some() || !folders.column_cwd.is_empty() { " (folder changes apply to sessions started from now on)" } else { "" };
+    Ok(format!("updated {id}{note}"))
+}
+
+fn apply_folders(config: &BoardConfig, ticket: &mut Ticket, folders: &FolderArgs) -> Result<()> {
+    if let Some(cwd) = &folders.cwd {
+        ticket.set_cwd(cwd);
+    }
+    for entry in &folders.column_cwd {
+        let (column, folder) = entry.split_once('=').with_context(|| format!("--column-cwd expects COLUMN=FOLDER, got '{entry}'"))?;
+        require_column(config, column.trim())?;
+        ticket.set_column_cwd(column.trim(), folder);
+    }
+    Ok(())
 }
 
 fn require_column(config: &BoardConfig, column: &str) -> Result<()> {

@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 mod archive;
 mod assistant;
+mod folders;
 mod jira_import;
 mod lifecycle;
 
@@ -60,6 +61,7 @@ struct NewTicketForm {
     id: Entity<InputState>,
     title: Entity<InputState>,
     description: Entity<TextareaState>,
+    folder: Entity<InputState>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -123,6 +125,7 @@ pub struct LanesApp {
     assistant: Option<Entity<TerminalView>>,
     show_assistant: bool,
     config_mtime: Option<std::time::SystemTime>,
+    folder_edit: Option<folders::FolderEdit>,
     _appearance: Subscription,
 }
 
@@ -153,6 +156,7 @@ impl LanesApp {
             assistant: None,
             show_assistant: false,
             config_mtime: None,
+            folder_edit: None,
             _appearance: appearance,
         };
         app.config_mtime = app.board_file_mtime();
@@ -416,6 +420,7 @@ impl LanesApp {
             id: cx.new(|cx| InputState::new(window, cx).placeholder("ID (optional, e.g. PROJ-123)")),
             title: cx.new(|cx| InputState::new(window, cx).placeholder("Title")),
             description: cx.new(|cx| TextareaState::new(window, cx).placeholder("Description / context for the first stage").rows(5)),
+            folder: cx.new(|cx| InputState::new(window, cx).placeholder("Working folder (optional, all stages)")),
         };
         form.title.update(cx, |state, cx| state.focus(window, cx));
         self.jira_form = None;
@@ -428,11 +433,16 @@ impl LanesApp {
         let id = form.id.read(cx).value().to_string();
         let title = form.title.read(cx).value().to_string();
         let description = form.description.read(cx).value().to_string();
+        let folder = form.folder.read(cx).value().to_string();
         if title.trim().is_empty() {
             return window.push_notification(Notification::warning("A ticket needs a title"), cx);
         }
         let column = self.board.config.first_column().id.clone();
-        match self.board.tickets.create(Some(&id), &title, &description, &column) {
+        let created = self.board.tickets.create(Some(&id), &title, &description, &column).and_then(|mut ticket| {
+            ticket.set_cwd(&folder);
+            self.board.tickets.save(&ticket).map(|()| ticket)
+        });
+        match created {
             Ok(ticket) => {
                 self.new_ticket = None;
                 self.reload_tickets(window, cx);
@@ -631,6 +641,7 @@ impl LanesApp {
                 .child(Input::new(&form.id).small())
                 .child(Input::new(&form.title).small())
                 .child(Textarea::new(&form.description))
+                .child(Input::new(&form.folder).small())
                 .child(
                     h_flex()
                         .gap_2()
@@ -753,6 +764,7 @@ impl LanesApp {
                         this.child(div().text_xs().text_color(theme.muted_foreground).max_h(px(80.)).overflow_hidden().child(ticket.description.clone()))
                     })
                     .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
+                    .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
                     .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
                     .child(self.render_artifacts(ticket, cx)),
             )

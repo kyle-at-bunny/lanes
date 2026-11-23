@@ -79,7 +79,7 @@ permission_mode = "plan"
 | --- | --- |
 | `id` | Unique identifier, used in ticket files and the CLI. Changing it orphans tickets in that column. |
 | `title` | Display name (defaults to `id`). |
-| `cwd` | Folder the stage's sessions run in. `~` is expanded. Omit for holding lanes. |
+| `cwd` | Folder the stage's sessions run in. `~` is expanded and templates work, e.g. `"~/worktrees/{{ ticket.id \| lower }}"`. Omit for holding lanes. Tickets can override it; see [Working folders](#working-folders). |
 | `prompt` | Prompt template, relative to the board folder. Appended to Claude's system prompt when the session is created. |
 | `consumes` / `produces` | Artifact names; see [Artifacts](#artifacts). |
 | `model`, `effort` | Override the defaults for this stage. |
@@ -91,6 +91,42 @@ permission_mode = "plan"
 | `[[columns.actions]]` | Action buttons shown on tickets in this column. |
 
 Model, effort, permission mode and extra arguments are passed again on every launch, including resumes. The prompt is fixed when a session is created: editing a column's prompt affects new sessions only.
+
+## Working folders
+
+When a ticket's session for a stage is first created, Lanes picks its folder from the most specific setting that exists:
+
+1. **The ticket's folder for this stage** (`[column_cwd]` in `ticket.toml`).
+2. **The ticket's folder for all stages** (`cwd` in `ticket.toml`).
+3. **The column's `cwd`** in `board.toml`.
+
+All three are templates, using `ticket.id`, `ticket.title`, `ticket.jira_key`, `ticket.jira_url`, `column.id` and `column.title`, and `~` is expanded. The folder must exist when the session starts.
+
+Set ticket folders in three places:
+- the ticket panel ("New sessions start in … **Change**", then **All stages** or **<Stage> only**);
+- the **New ticket** form;
+- the CLI: `lanes ticket edit <ID> --cwd <folder> --column-cwd qa=<folder>`.
+
+**Use column default** removes a ticket's overrides.
+
+A session keeps the folder it was created in, even when its ticket's folders change later, because Claude Code ties a session's history to its folder. The ticket panel warns when the current stage's existing session runs somewhere other than the folder new sessions would use.
+
+A typical per-ticket worktree setup:
+
+```toml
+[[columns]]
+id = "dev"
+cwd = "~/worktrees/{{ ticket.id | lower }}"
+# cd out of the worktree first: Windows won't remove a folder a process is running in
+cleanup = "cd /d %USERPROFILE% && git -C %USERPROFILE%/projects/my-app worktree remove --force {{ cwd }}"
+
+[[columns.actions]]
+label = "Create worktree"
+command = "git -C %USERPROFILE%/projects/my-app worktree add -b {{ ticket.id | lower }} {{ cwd }}"
+cwd = "~"
+```
+
+Commands run through `cmd.exe`, so use `%USERPROFILE%` rather than `~` inside them. `~` is only expanded in `cwd` settings.
 
 ## Prompt templates
 

@@ -37,6 +37,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
 - **Jira import.** Turn issue keys, or your open issues, into tickets. The issue link is shown on the ticket and passed to Claude.
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
+- **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".
 - **Finish & clean up.** Stop a finished ticket's sessions, run cleanup commands (e.g. `git worktree remove`) and archive the ticket, with a confirmation step and restore.
 - **Lives in the tray.** Closing the window keeps sessions running, and the tray icon shows when one needs you.

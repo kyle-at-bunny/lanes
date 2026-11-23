@@ -9,6 +9,7 @@ use crate::artifacts::ArtifactStore;
 use crate::config::{ActionDef, ArtifactType, BoardConfig};
 use crate::paths::{LanesHome, expand_tilde};
 use crate::ticket::Ticket;
+use crate::workdir;
 
 const OUTPUT_TAIL_LINES: usize = 15;
 
@@ -25,13 +26,17 @@ pub struct ActionOutcome {
     pub output: String,
 }
 
-/// Renders an action's templates against the ticket. The cwd defaults to the ticket's session folder for its column, then the column cwd.
+/// Renders an action's templates against the ticket. The cwd defaults to the ticket's session folder for its column, then the folder a new session would use.
 pub fn prepare(home: &LanesHome, config: &BoardConfig, ticket: &Ticket, action: &ActionDef) -> Result<PreparedAction> {
     let column = config.column(&ticket.column);
+    let resolved = match column {
+        Some(column) => workdir::resolve(ticket, column)?,
+        None => None,
+    };
     let default_cwd = ticket
         .session(&ticket.column)
         .map(|record| record.cwd.clone())
-        .or_else(|| column.and_then(|c| c.cwd.as_deref()).map(expand_tilde))
+        .or(resolved)
         .unwrap_or_else(|| home.root().to_path_buf());
     let env = Environment::new();
     let ctx = context! {
