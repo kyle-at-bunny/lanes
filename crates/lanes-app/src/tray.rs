@@ -1,4 +1,6 @@
 use anyhow::Result;
+
+use crate::icon_art;
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
@@ -75,50 +77,6 @@ impl Tray {
     }
 }
 
-/// Three white lanes on a blue rounded square, with an orange dot when something needs attention.
 fn render_icon(attention: bool) -> Result<Icon> {
-    let size = ICON_SIZE as i32;
-    let mut rgba = Vec::with_capacity((ICON_SIZE * ICON_SIZE * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            rgba.extend_from_slice(&icon_pixel(x, y, size, attention));
-        }
-    }
-    Ok(Icon::from_rgba(rgba, ICON_SIZE, ICON_SIZE)?)
-}
-
-fn icon_pixel(x: i32, y: i32, size: i32, attention: bool) -> [u8; 4] {
-    const BLUE: [u8; 4] = [0x3b, 0x82, 0xf6, 0xff];
-    const WHITE: [u8; 4] = [0xff, 0xff, 0xff, 0xff];
-    const ORANGE: [u8; 4] = [0xf9, 0x73, 0x16, 0xff];
-    const CLEAR: [u8; 4] = [0, 0, 0, 0];
-    let in_dot = |cx: i32, cy: i32, r: i32| (x - cx).pow(2) + (y - cy).pow(2) <= r * r;
-    if attention && in_dot(size - 7, 6, 6) {
-        return ORANGE;
-    }
-    if !in_rounded_square(x, y, size, 6) {
-        return CLEAR;
-    }
-    let lane = [8, 15, 22].iter().any(|&left| (left..left + 3).contains(&x));
-    if lane && (7..size - 7).contains(&y) { WHITE } else { BLUE }
-}
-
-fn in_rounded_square(x: i32, y: i32, size: i32, radius: i32) -> bool {
-    let nearest_x = x.clamp(radius, size - 1 - radius);
-    let nearest_y = y.clamp(radius, size - 1 - radius);
-    (x - nearest_x).pow(2) + (y - nearest_y).pow(2) <= radius * radius
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn icon_has_lanes_corners_and_attention_dot() {
-        assert_eq!(icon_pixel(0, 0, 32, false)[3], 0);
-        assert_eq!(icon_pixel(9, 16, 32, false), [0xff, 0xff, 0xff, 0xff]);
-        assert_eq!(icon_pixel(12, 16, 32, false)[2], 0xf6);
-        assert_eq!(icon_pixel(25, 6, 32, true), [0xf9, 0x73, 0x16, 0xff]);
-        assert_ne!(icon_pixel(25, 6, 32, false), [0xf9, 0x73, 0x16, 0xff]);
-    }
+    Ok(Icon::from_rgba(icon_art::rgba(ICON_SIZE, attention), ICON_SIZE, ICON_SIZE)?)
 }

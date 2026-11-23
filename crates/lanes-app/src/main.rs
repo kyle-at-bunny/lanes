@@ -3,6 +3,7 @@
 extern crate gpui_kit as gpui;
 
 mod board_view;
+mod icon_art;
 mod keys;
 mod palette;
 mod pty;

@@ -4213,6 +4213,7 @@ dependencies = [
  "alacritty_terminal",
  "anyhow",
  "clap",
+ "embed-resource",
  "gpui-kit",
  "lanes-core",
  "portable-pty",
