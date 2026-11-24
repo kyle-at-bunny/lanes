@@ -13,6 +13,9 @@ use lanes_core::paths::{expand_tilde, now_unix};
 use lanes_core::ticket::Ticket;
 use lanes_core::timeline;
 
+use lanes_core::pr_status::PrCache;
+
+use super::pr_status::{pr_chip, tinted_tag};
 use super::{DetailTab, LanesApp, open_in_shell};
 
 pub(super) struct ArtifactEdit {
@@ -141,8 +144,8 @@ impl LanesApp {
         let content = match (editing, &entry.content, entry.kind) {
             (Some(edit), _, _) => self.render_artifact_editor(edit, cx).into_any_element(),
             (None, None, _) => div().text_xs().text_color(theme.muted_foreground).child("Not produced yet.").into_any_element(),
-            (None, Some(text), ArtifactType::Text) => render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &theme),
-            (None, Some(text), ArtifactType::File) => render_file_content(&format!("{}-{}", ticket.id, entry.name), text, &theme),
+            (None, Some(text), ArtifactType::Text) => render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() }),
+            (None, Some(text), ArtifactType::File) => render_file_content(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() }),
         };
         v_flex()
             .gap_1()
@@ -249,23 +252,30 @@ fn status_tag(entry: &ArtifactEntry, role: Role, theme: &Theme) -> Option<AnyEle
     }
 }
 
+/// What artifact content rendering needs besides the content: colours and the fetched PR statuses.
+struct Look<'a> {
+    theme: &'a Theme,
+    prs: &'a PrCache,
+}
+
 /// Text artifacts: `branch`-format lines become repository rows, everything else is text with clickable links and paths.
-fn render_content_lines(id: &str, content: &str, theme: &Theme) -> AnyElement {
+fn render_content_lines(id: &str, content: &str, look: &Look<'_>) -> AnyElement {
     let lines: Vec<_> = artifact_view::parse_lines(content)
         .into_iter()
         .enumerate()
         .map(|(index, line)| match line {
-            ContentLine::Branch(row) => render_branch_row(&format!("{id}-{index}"), row, theme),
-            ContentLine::Text(text) => render_segments(&format!("{id}-{index}"), &text, theme),
+            ContentLine::Branch(row) => render_branch_row(&format!("{id}-{index}"), row, look),
+            ContentLine::Text(text) => render_segments(&format!("{id}-{index}"), &text, look),
         })
         .collect();
     v_flex().gap_1().text_xs().children(lines).into_any_element()
 }
 
-fn render_branch_row(id: &str, row: BranchRow, theme: &Theme) -> AnyElement {
+fn render_branch_row(id: &str, row: BranchRow, look: &Look<'_>) -> AnyElement {
+    let theme = look.theme;
     let pr = match row.pr {
-        Some(url) => link_button(&format!("{id}-pr"), &url).into_any_element(),
-        None => div().text_color(theme.muted_foreground).child("no PR").into_any_element(),
+        Some(url) => link_with_status(&format!("{id}-pr"), &url, look),
+        None => vec![div().text_color(theme.muted_foreground).child("no PR").into_any_element()],
     };
     h_flex()
         .flex_wrap()
@@ -274,11 +284,12 @@ fn render_branch_row(id: &str, row: BranchRow, theme: &Theme) -> AnyElement {
         .child(path_label(&row.repo, theme))
         .children(path_buttons(id, &row.repo))
         .child(Tag::secondary().xsmall().child(row.branch))
-        .child(pr)
+        .children(pr)
         .into_any_element()
 }
 
-fn render_segments(id: &str, text: &str, theme: &Theme) -> AnyElement {
+fn render_segments(id: &str, text: &str, look: &Look<'_>) -> AnyElement {
+    let theme = look.theme;
     if text.trim().is_empty() {
         return div().h(px(6.)).into_any_element();
     }
@@ -287,7 +298,7 @@ fn render_segments(id: &str, text: &str, theme: &Theme) -> AnyElement {
         .enumerate()
         .flat_map(|(index, segment)| match segment {
             Segment::Text(text) => vec![div().child(text).into_any_element()],
-            Segment::Url(url) => vec![link_button(&format!("{id}-{index}"), &url).into_any_element()],
+            Segment::Url(url) => link_with_status(&format!("{id}-{index}"), &url, look),
             Segment::Path(path) => path_with_buttons(&format!("{id}-{index}"), &path, theme),
         })
         .collect();
@@ -295,7 +306,8 @@ fn render_segments(id: &str, text: &str, theme: &Theme) -> AnyElement {
 }
 
 /// File artifacts render as markdown; the URLs and paths they mention are listed below with buttons.
-fn render_file_content(id: &str, content: &str, theme: &Theme) -> AnyElement {
+fn render_file_content(id: &str, content: &str, look: &Look<'_>) -> AnyElement {
+    let theme = look.theme;
     let mut seen = BTreeSet::new();
     let links: Vec<_> = content
         .lines()
@@ -303,7 +315,7 @@ fn render_file_content(id: &str, content: &str, theme: &Theme) -> AnyElement {
         .filter(|segment| !matches!(segment, Segment::Text(_)) && seen.insert(segment.clone()))
         .enumerate()
         .flat_map(|(index, segment)| match segment {
-            Segment::Url(url) => vec![link_button(&format!("{id}-link-{index}"), &url).into_any_element()],
+            Segment::Url(url) => link_with_status(&format!("{id}-link-{index}"), &url, look),
             Segment::Path(path) => path_with_buttons(&format!("{id}-link-{index}"), &path, theme),
             Segment::Text(_) => Vec::new(),
         })
@@ -328,9 +340,13 @@ fn render_file_content(id: &str, content: &str, theme: &Theme) -> AnyElement {
         .into_any_element()
 }
 
-fn link_button(id: &str, url: &str) -> impl IntoElement {
+/// A link that opens in the browser, followed by a status chip when it is a pull request.
+fn link_with_status(id: &str, url: &str, look: &Look<'_>) -> Vec<AnyElement> {
     let target = url.to_string();
-    Button::new(SharedString::from(format!("url-{id}"))).label(url.to_string()).link().xsmall().tooltip("Open in browser").on_click(move |_, _, cx| cx.open_url(&target))
+    let button = Button::new(SharedString::from(format!("url-{id}"))).label(url.to_string()).link().xsmall().tooltip("Open in browser").on_click(move |_, _, cx| cx.open_url(&target));
+    let mut pieces = vec![button.into_any_element()];
+    pieces.extend(pr_chip(url, look.prs, look.theme));
+    pieces
 }
 
 fn path_with_buttons(id: &str, path: &str, theme: &Theme) -> Vec<AnyElement> {
@@ -345,9 +361,8 @@ fn path_label(path: &str, theme: &Theme) -> AnyElement {
     div().font_family(theme.mono_font_family.clone()).child(artifact_view::display_path(path, PATH_DISPLAY_CHARS)).into_any_element()
 }
 
-/// Amber text on a faint amber fill: the stock warning tag's light text is unreadable on its fill.
 fn warning_tag(label: impl Into<SharedString>, theme: &Theme) -> AnyElement {
-    Tag::custom(theme.warning.opacity(0.15), theme.warning, theme.warning.opacity(0.6)).xsmall().child(label.into()).into_any_element()
+    tinted_tag(label, theme.warning)
 }
 
 fn path_buttons(id: &str, path: &str) -> Vec<AnyElement> {

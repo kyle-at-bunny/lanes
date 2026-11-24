@@ -66,6 +66,7 @@ The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and
 - **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** for your editor.
 - **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with **Open folder** / **VS Code** buttons, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
 - **Links:** URLs open in the browser, and local paths (`C:\…`, `\\server\…`, `~/…`) get **Open folder** / **VS Code** buttons.
+- **Pull request status:** pull request links (`https://<host>/<owner>/<repo>/pull/<n>`) in any artifact are checked with the [GitHub CLI](https://cli.github.com) (`gh pr view`), so `gh` must be installed and logged in. Each link gets a chip such as "open · checks failing", "draft" or "merged". Cards get a badge like "2 PRs · 1 failing", and **Finish & clean up** warns about PRs that are still open. Open PRs are rechecked every minute, merged and closed ones every 10 minutes. If `gh` fails, the link shows "status unavailable".
 
 ## `[[columns]]`
 

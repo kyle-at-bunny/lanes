@@ -11,6 +11,7 @@ pub mod defaults;
 pub mod jira;
 pub mod launch;
 pub mod paths;
+pub mod pr_status;
 pub mod prompt;
 pub mod session;
 pub mod sessions;

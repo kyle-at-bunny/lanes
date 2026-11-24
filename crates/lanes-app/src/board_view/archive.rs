@@ -87,6 +87,7 @@ impl LanesApp {
 
     pub(super) fn render_cleanup_confirm(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let plan = self.cleanup_confirm.as_ref()?;
+        let open_prs = self.open_pr_warnings(&plan.ticket_id).into_iter().map(|line| div().font_weight(FontWeight::SEMIBOLD).child(line).into_any_element());
         Some(
             h_flex()
                 .px_3()
@@ -94,7 +95,7 @@ impl LanesApp {
                 .gap_3()
                 .items_start()
                 .bg(cx.theme().warning.opacity(0.15))
-                .child(v_flex().flex_1().min_w_0().gap_0p5().text_sm().children(describe_plan(plan)))
+                .child(v_flex().flex_1().min_w_0().gap_0p5().text_sm().children(describe_plan(plan)).children(open_prs))
                 .child(Button::new("confirm-cleanup").label("Finish & clean up").warning().small().on_click(cx.listener(|this, _, window, cx| {
                     this.confirm_cleanup(window, cx)
                 })))

@@ -32,6 +32,7 @@ mod sessions_view;
 mod split;
 mod jira_import;
 mod lifecycle;
+mod pr_status;
 
 use crate::palette::TerminalThemeChoice;
 use crate::tray::Tray;
@@ -137,6 +138,7 @@ pub struct LanesApp {
     ui_prefs: lanes_core::ui_prefs::UiPrefs,
     artifact_edit: Option<artifacts::ArtifactEdit>,
     show_other_artifacts: bool,
+    prs: pr_status::PrTracker,
     _split_resized: Subscription,
     _appearance: Subscription,
 }
@@ -179,6 +181,7 @@ impl LanesApp {
             ui_prefs,
             artifact_edit: None,
             show_other_artifacts: false,
+            prs: Default::default(),
             _split_resized: split_resized,
             _appearance: appearance,
         };
@@ -267,6 +270,7 @@ impl LanesApp {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let alive = this.update_in(cx, |app, window, cx| {
                     app.reload_tickets(window, cx);
+                    app.refresh_pr_statuses(cx);
                     app.announce_attention(window, cx);
                     app.update_tray_badge(cx);
                     app.reload_config_if_changed(window, cx);
@@ -710,6 +714,7 @@ impl LanesApp {
         let session = self.card_session(ticket, cx);
         let context = ticket.session(&ticket.column).and_then(|r| self.board.states.status(&r.id)).and_then(|s| s.context_used_pct);
         let outputs = self.output_summary(ticket);
+        let prs = self.pr_badge(&ticket.id, cx);
         let dragged = DraggedTicket { id: ticket.id.clone(), title: format!("{} {}", ticket.id, ticket.title) };
         let theme = cx.theme();
         let (left_id, right_id) = (id.clone(), id.clone());
@@ -738,6 +743,7 @@ impl LanesApp {
                     .text_color(theme.muted_foreground)
                     .when_some(context, |this, pct| this.child(context_label(pct, cx)))
                     .when_some(outputs, |this, outputs| this.child(outputs))
+                    .when_some(prs, |this, badge| this.child(badge))
                     .child(div().flex_1())
                     .child(Button::new(SharedString::from(format!("left-{}", ticket.id))).label("‹").ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
                         this.step_ticket(&left_id, -1, window, cx)
