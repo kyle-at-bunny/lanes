@@ -188,7 +188,7 @@ In `~/.lanes` (board, prompts, tickets, artifacts, Lanes state) and in Claude Co
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test and style notes.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test and style notes, and [ROADMAP.md](ROADMAP.md) for where Lanes is heading.
 
 ## Acknowledgements
 
