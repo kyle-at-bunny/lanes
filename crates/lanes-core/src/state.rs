@@ -87,6 +87,18 @@ pub fn status_snapshot(input: &Value) -> StatusSnapshot {
     }
 }
 
+/// The file a `PostToolUse` hook reports Claude as having written or edited.
+pub fn edited_file(event: &Value) -> Option<&str> {
+    if event.get("hook_event_name")?.as_str()? != "PostToolUse" {
+        return None;
+    }
+    let tool = event.get("tool_name")?.as_str()?;
+    if !matches!(tool, "Write" | "Edit" | "MultiEdit") {
+        return None;
+    }
+    event.pointer("/tool_input/file_path")?.as_str()
+}
+
 pub fn session_id_of(input: &Value) -> Option<Uuid> {
     input.get("session_id")?.as_str()?.parse().ok()
 }
@@ -149,6 +161,15 @@ mod tests {
         assert_eq!(status(json!({"hook_event_name": "Stop"})), Some(AgentStatus::Idle));
         assert_eq!(status(json!({"hook_event_name": "StopFailure", "error": "auth"})), Some(AgentStatus::Idle));
         assert_eq!(status(json!({"hook_event_name": "PreCompact"})), None);
+    }
+
+    #[test]
+    fn finds_files_written_by_tools() {
+        let event = |tool: &str| json!({"hook_event_name": "PostToolUse", "tool_name": tool, "tool_input": {"file_path": "C:\\b\\plan.md"}});
+        assert_eq!(edited_file(&event("Write")), Some("C:\\b\\plan.md"));
+        assert_eq!(edited_file(&event("Edit")), Some("C:\\b\\plan.md"));
+        assert_eq!(edited_file(&event("Read")), None);
+        assert_eq!(edited_file(&json!({"hook_event_name": "Stop", "tool_name": "Write"})), None);
     }
 
     #[test]

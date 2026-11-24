@@ -45,9 +45,14 @@ impl TerminalView {
     }
 
     pub fn send_text(&self, text: &str) {
+        self.type_text(text);
+        self.session.write(b"\r");
+    }
+
+    /// Puts text in the input box without submitting it.
+    pub fn type_text(&self, text: &str) {
         let bracketed = self.session.term.lock().mode().contains(TermMode::BRACKETED_PASTE);
         self.session.write(&bracketed_paste(text, bracketed));
-        self.session.write(b"\r");
     }
 
     fn start_repaint_loop(&self, cx: &mut Context<Self>) {

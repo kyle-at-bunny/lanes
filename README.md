@@ -31,7 +31,8 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 ## Features
 
 - **One session per ticket per stage.** Each column has its own prompt template, working directory, model and permission mode. Sessions resume by ID when a ticket comes back.
-- **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file or a short piece of text. Lanes feeds inputs into each new session's first prompt and warns you if you move a ticket on before its outputs exist.
+- **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file or a short piece of text. Each new session gets the ticket brief and its inputs as context and waits for your first message (or starts straight away with `start = "prompt"`). Lanes warns you if you move a ticket on before its outputs exist.
+- **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, and clickable PR links and repo folders.
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
@@ -91,8 +92,8 @@ Backlog ──► Plan / Arch ──► Dev ──► Review ──► QA ──
                └────────────►└───────►└──► (back to Dev resumes the Dev session)
 ```
 
-- **Starting a stage** (opening the ticket and clicking **Start session**) runs `claude --session-id <uuid>` in the column's `cwd`, with the column's prompt appended to the system prompt. Lanes remembers the session ID per (ticket, column).
-- **Coming back** to a column and clicking **Resume session** runs `claude --resume <uuid>`. If any of the column's inputs changed since that session last ran, Lanes sends a short re-entry message listing them.
+- **Starting a stage** (opening the ticket and clicking **Start session**) runs `claude --session-id <uuid>` in the column's `cwd`, with the column's prompt and the ticket brief appended to the system prompt. Claude waits for you to set the first task. Lanes remembers the session ID per (ticket, column).
+- **Coming back** to a column and clicking **Resume session** runs `claude --resume <uuid>`. If any of the column's inputs changed since that session last ran, Lanes types a short re-entry note listing them into the input box, for you to edit and send.
 - **Sessions write their outputs** to the paths Lanes gives them (file artifacts) or with `lanes artifact set` (text artifacts). Later stages only ever see those artifacts.
 - **Status comes from Claude Code** through per-session hooks and a status line, injected with `--settings`, so your own Claude settings are untouched.
 

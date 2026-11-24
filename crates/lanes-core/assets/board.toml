@@ -7,7 +7,9 @@ claude_path = "claude"
 # model = "opus"
 # effort = "medium"
 terminal = "embedded"        # "embedded" | "external" (Windows Terminal tabs)
-kickoff_inline_limit = 6000  # longer kickoff prompts are passed as a file reference
+start = "wait"               # "wait": new sessions open on an empty input box with the ticket brief as context;
+                             # "prompt": the brief is sent as the first message. Columns can set `start` too.
+kickoff_inline_limit = 6000  # with start = "prompt", longer briefs are passed as a file reference
 theme = "system"             # "system" | "light" | "dark" (the top-bar toggle updates this)
 terminal_theme = "match"     # "match" the app, or keep the terminal "dark" always
 cleanup_on_done = false      # offer "Finish & clean up" automatically when a card lands in the last column
@@ -26,7 +28,7 @@ description = "Implementation plan: goal, approach, files to change, risks, and 
 
 [artifacts.branch]
 type = "text"
-description = "Repository path and branch name holding the implementation, plus the PR URL if one was opened."
+description = "One line per repository, exactly in this format: `<absolute repo path> | <branch> | <PR URL or \"no PR\">`, e.g. `C:\\repos\\app | feat/login | https://github.com/org/app/pull/12`. No other text."
 
 [artifacts.review_notes]
 type = "file"

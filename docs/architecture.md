@@ -32,14 +32,16 @@ input_hashes = { plan = "3a9c…" }
 ```
 
 - **First entry** to a column:
-  1. Lanes generates a UUID and renders the column's prompt plus a generated *Stage outputs* section into `sessions/<column>.system.md`.
-  2. It builds the first prompt: the ticket plus its *Inputs from earlier stages*.
+  1. Lanes generates a UUID and builds the *ticket brief*: title, Jira link, description and the *Inputs from earlier stages*.
+  2. It renders the column's prompt plus a generated *Stage outputs* section into `sessions/<column>.system.md`. With `start = "wait"` (the default), the brief goes in there too.
   3. It launches:
 
      ```
-     claude --session-id <uuid> --append-system-prompt-file <system.md> --settings <per-session.json> [--model …] "<first prompt>"
+     claude --session-id <uuid> --append-system-prompt-file <system.md> --settings <per-session.json> [--model …]
      ```
-- **Re-entry:** Lanes runs `claude --resume <uuid> --settings … [flags]`. It compares the current hashes of the column's inputs with `input_hashes` from the last entry, and sends a re-entry message only if something changed.
+
+     With `start = "wait"` there is no positional prompt: Claude opens on an empty input box with the ticket already in context, and you send the first message. With `start = "prompt"`, the brief is passed as the first message instead, and Claude starts working immediately. Either way the brief is fixed when the session is created.
+- **Re-entry:** Lanes runs `claude --resume <uuid> --settings … [flags]`. It compares the current hashes of the column's inputs with `input_hashes` from the last entry, and prepares a re-entry note only if something changed. In wait mode with the embedded terminal, the note is typed into Claude's input box with no Enter once its UI has settled, so you can edit it before sending. Otherwise it is passed as the prompt.
 - **Flags on every launch:** model, effort, permission mode, extra arguments and settings aren't persisted by Claude Code across `--resume`, so Lanes passes them every time. The appended system prompt *is* kept with the session, which is why a prompt edit affects only new sessions.
 - **One process per session:** if a session's process is already running, opening it again focuses the existing terminal.
 

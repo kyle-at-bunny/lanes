@@ -29,6 +29,17 @@ impl PromptBuilder<'_> {
         Ok(prompt)
     }
 
+    /// The system prompt for `start = "wait"`: the ticket brief is context, and the user sends the first message.
+    pub fn system_prompt_with_brief(&self) -> Result<String> {
+        let mut prompt = self.render_column_prompt()?;
+        prompt.push_str("\n\n## Ticket brief\nThis is the ticket you are working on. The user will tell you what to do first, so wait for their message.\n\n");
+        prompt.push_str(&self.kickoff()?);
+        prompt.push_str("\n\n");
+        prompt.push_str(&self.outputs_section()?);
+        Ok(prompt)
+    }
+
+    /// The ticket brief: title, Jira link, description and inputs from earlier stages.
     pub fn kickoff(&self) -> Result<String> {
         let mut text = format!("# Ticket {}: {}\n\n", self.ticket.id, self.ticket.title);
         if let Some(jira) = &self.ticket.jira {
@@ -185,6 +196,19 @@ consumes = ["plan", "spec", "branch", "notes?"]
         assert!(prompt.contains("artifacts/plan.md"));
         assert!(prompt.contains("C:/bin/lanes.exe --home"));
         assert!(prompt.contains("artifact set --ticket T-9 branch"));
+    }
+
+    #[test]
+    fn system_prompt_with_brief_holds_ticket_and_inputs() {
+        let (_dir, home, config, ticket) = fixture();
+        ArtifactStore::new(&home, &config, "T-9").write("plan", "Step one").unwrap();
+        let builder = PromptBuilder { home: &home, config: &config, ticket: &ticket, column: config.column("dev").unwrap(), lanes_exe: Path::new("lanes") };
+        let prompt = builder.system_prompt_with_brief().unwrap();
+        assert!(prompt.contains("## Ticket brief"));
+        assert!(prompt.contains("# Ticket T-9: Fix it"));
+        assert!(prompt.contains("Details here"));
+        assert!(prompt.contains("Step one"));
+        assert!(!builder.system_prompt().unwrap().contains("Details here"));
     }
 
     #[test]

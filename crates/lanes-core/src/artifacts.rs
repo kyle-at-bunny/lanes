@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use crate::config::{ArtifactDef, ArtifactType, BoardConfig};
-use crate::paths::{LanesHome, write_atomic};
+use crate::paths::{LanesHome, portable, write_atomic};
 use crate::timeline::{self, EventKind};
 
 pub struct ArtifactStore<'a> {
@@ -38,12 +38,37 @@ impl<'a> ArtifactStore<'a> {
     }
 
     pub fn write(&self, name: &str, content: &str) -> Result<()> {
+        self.write_by(name, content, None)
+    }
+
+    /// Writes and records who wrote it: a column id, `timeline::USER`, or None when unknown.
+    pub fn write_by(&self, name: &str, content: &str, by: Option<&str>) -> Result<()> {
         let def = self.def(name)?;
         match def.kind {
             ArtifactType::File => write_atomic(&self.file_path(name, def), content.as_bytes())?,
             ArtifactType::Text => self.write_text_value(name, content)?,
         }
-        timeline::record(self.home, self.ticket_id, EventKind::ArtifactWritten, name)
+        timeline::record_by(self.home, self.ticket_id, EventKind::ArtifactWritten, name, by)
+    }
+
+    /// The file artifact stored at `path`, if any; used to attribute a session's direct file edits.
+    pub fn file_artifact_at(&self, path: &Path) -> Option<&'a str> {
+        let dir = self.home.artifacts_dir(self.ticket_id);
+        let same_dir = path.parent().is_some_and(|parent| same_path(parent, &dir));
+        let file_name = path.file_name()?.to_str()?;
+        self.config
+            .artifacts
+            .iter()
+            .filter(|(_, def)| def.kind == ArtifactType::File)
+            .find(|(name, def)| same_dir && def.file_name_for(name).eq_ignore_ascii_case(file_name))
+            .map(|(name, _)| name.as_str())
+    }
+
+    /// Records a write that a session made directly to an artifact file, so its provenance is known.
+    pub fn record_file_write(&self, path: &Path, by: Option<&str>) -> Result<bool> {
+        let Some(name) = self.file_artifact_at(path) else { return Ok(false) };
+        timeline::record_by(self.home, self.ticket_id, EventKind::ArtifactWritten, name, by)?;
+        Ok(true)
     }
 
     pub fn hash(&self, name: &str) -> Result<Option<String>> {
@@ -89,6 +114,11 @@ impl<'a> ArtifactStore<'a> {
     }
 }
 
+fn same_path(a: &Path, b: &Path) -> bool {
+    let normalize = |p: &Path| portable(p).trim_end_matches('/').to_ascii_lowercase();
+    normalize(a) == normalize(b)
+}
+
 pub fn content_hash(content: &str) -> String {
     let digest = Sha256::digest(content.trim().as_bytes());
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
@@ -132,5 +162,23 @@ id = "backlog"
         store.write("branch", "   ").unwrap();
         assert_eq!(store.missing(["branch"]).unwrap(), vec!["branch"]);
         assert!(store.read("ghost").is_err());
+    }
+
+    #[test]
+    fn attributes_direct_file_writes_to_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = LanesHome::new(dir.path());
+        let config = BoardConfig::parse(BOARD).unwrap();
+        TicketStore::new(home.clone()).create(Some("T-1"), "t", "", "backlog").unwrap();
+        let store = ArtifactStore::new(&home, &config, "T-1");
+        let plan = home.artifacts_dir("T-1").join("PLAN.md");
+        let shouty = PathBuf::from(portable(&plan).replace('/', "\\").to_uppercase());
+
+        assert_eq!(store.file_artifact_at(&shouty), Some("plan"));
+        assert_eq!(store.file_artifact_at(&home.artifacts_dir("T-1").join("branch.md")), None);
+        assert_eq!(store.file_artifact_at(&dir.path().join("plan.md")), None);
+        assert!(store.record_file_write(&plan, Some("plan")).unwrap());
+        let last = timeline::read(&home, "T-1").pop().unwrap();
+        assert_eq!((last.kind, last.detail.as_str(), last.by.as_deref()), (EventKind::ArtifactWritten, "plan", Some("plan")));
     }
 }

@@ -5,7 +5,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::artifacts::ArtifactStore;
-use crate::config::{BoardConfig, ColumnDef};
+use crate::config::{BoardConfig, ColumnDef, StartMode, TerminalMode};
 use crate::paths::{COLUMN_ENV, HOME_ENV, LanesHome, TICKET_ENV, expand_tilde, now_unix, portable, write_atomic};
 use crate::prompt::PromptBuilder;
 use crate::ticket::{SessionRecord, Ticket};
@@ -27,6 +27,9 @@ pub struct LaunchSpec {
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
     pub title: String,
+    /// Text to type into Claude's input box without sending it, once the session is ready.
+    #[serde(default)]
+    pub draft: Option<String>,
 }
 
 pub struct SessionLauncher<'a> {
@@ -66,26 +69,46 @@ impl SessionLauncher<'_> {
             ticket.id,
             column.title()
         );
-        let prompts = self.prompts(ticket, column);
-        let system_file = self.write_session_file(ticket, column, "system.md", &prompts.system_prompt()?)?;
-        let kickoff = prompts.kickoff()?;
-        let kickoff_file = self.write_session_file(ticket, column, "kickoff.md", &kickoff)?;
-
+        let mode = column.start_mode(&self.config.defaults);
+        let system_file = self.write_session_file(ticket, column, "system.md", &self.new_system_prompt(ticket, column, mode)?)?;
         let mut args = vec!["--session-id".into(), session_id.to_string(), "--append-system-prompt-file".into(), portable(&system_file)];
         args.extend(self.common_args(column, &session_id)?);
-        args.push(self.kickoff_argument(kickoff, &kickoff_file));
+        if mode == StartMode::Prompt {
+            args.push(self.kickoff_argument(ticket, column)?);
+        }
         Ok(self.spec(ticket, column, session_id, LaunchKind::New, args, cwd))
+    }
+
+    fn new_system_prompt(&self, ticket: &Ticket, column: &ColumnDef, mode: StartMode) -> Result<String> {
+        let prompts = self.prompts(ticket, column);
+        match mode {
+            StartMode::Wait => prompts.system_prompt_with_brief(),
+            StartMode::Prompt => prompts.system_prompt(),
+        }
     }
 
     fn resume_spec(&self, ticket: &Ticket, column: &ColumnDef, record: &SessionRecord) -> Result<LaunchSpec> {
         let mut args = vec!["--resume".into(), record.id.to_string()];
         args.extend(self.common_args(column, &record.id)?);
         let changed = self.changed_inputs(ticket, column, record)?;
-        if !changed.is_empty() {
-            let message = self.prompts(ticket, column).reentry(ticket.last_arrival_from(), &changed)?;
-            args.push(message);
+        let message = match changed.is_empty() {
+            true => None,
+            false => Some(self.prompts(ticket, column).reentry(ticket.last_arrival_from(), &changed)?),
+        };
+        let mut spec = self.spec(ticket, column, record.id, LaunchKind::Resume, args, record.cwd.clone());
+        if let Some(message) = message {
+            self.deliver_reentry(&mut spec, column, message);
         }
-        Ok(self.spec(ticket, column, record.id, LaunchKind::Resume, args, record.cwd.clone()))
+        Ok(spec)
+    }
+
+    /// Wait mode leaves the note as an editable draft; an external terminal can't be typed into, so it is sent instead.
+    fn deliver_reentry(&self, spec: &mut LaunchSpec, column: &ColumnDef, message: String) {
+        let can_type = self.config.defaults.terminal == TerminalMode::Embedded;
+        match column.start_mode(&self.config.defaults) {
+            StartMode::Wait if can_type => spec.draft = Some(message),
+            _ => spec.args.push(message),
+        }
     }
 
     fn spec(&self, ticket: &Ticket, column: &ColumnDef, session_id: Uuid, kind: LaunchKind, args: Vec<String>, cwd: PathBuf) -> LaunchSpec {
@@ -101,6 +124,7 @@ impl SessionLauncher<'_> {
                 (COLUMN_ENV.into(), column.id.clone()),
             ],
             title: format!("{} · {}", ticket.id, column.title()),
+            draft: None,
         }
     }
 
@@ -123,11 +147,13 @@ impl SessionLauncher<'_> {
         Ok(args)
     }
 
-    fn kickoff_argument(&self, kickoff: String, kickoff_file: &Path) -> String {
+    fn kickoff_argument(&self, ticket: &Ticket, column: &ColumnDef) -> Result<String> {
+        let kickoff = self.prompts(ticket, column).kickoff()?;
+        let kickoff_file = self.write_session_file(ticket, column, "kickoff.md", &kickoff)?;
         if kickoff.len() <= self.config.defaults.kickoff_inline_limit {
-            return kickoff;
+            return Ok(kickoff);
         }
-        format!("Your ticket brief is in `{}`. Read it in full, then begin.", portable(kickoff_file))
+        Ok(format!("Your ticket brief is in `{}`. Read it in full, then begin.", portable(&kickoff_file)))
     }
 
     fn changed_inputs(&self, ticket: &Ticket, column: &ColumnDef, record: &SessionRecord) -> Result<Vec<String>> {
@@ -199,12 +225,17 @@ mod tests {
     use crate::ticket::TicketStore;
 
     fn fixture() -> (tempfile::TempDir, LanesHome, BoardConfig) {
+        fixture_with("start = \"prompt\"")
+    }
+
+    fn fixture_with(extra_defaults: &str) -> (tempfile::TempDir, LanesHome, BoardConfig) {
         let dir = tempfile::tempdir().unwrap();
         let home = LanesHome::new(dir.path());
         let cwd = portable(dir.path());
         let board = format!(
             r#"
 [defaults]
+{extra_defaults}
 model = "opus"
 [artifacts.plan]
 type = "file"
@@ -270,6 +301,38 @@ consumes = ["plan", "notes?"]
         ArtifactStore::new(&home, &config, "T-2").write("notes", "fix x").unwrap();
         let changed = launcher.prepare(&mut ticket, "dev").unwrap();
         assert!(changed.args.last().unwrap().contains("changed since you last worked on it: notes"));
+    }
+
+    #[test]
+    fn wait_mode_puts_brief_in_system_prompt_and_drafts_reentry() {
+        let (_dir, home, config) = fixture_with("");
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-4"), "Wait here", "Some details", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        ArtifactStore::new(&home, &config, "T-4").write("plan", "the plan").unwrap();
+
+        let new = launcher.prepare(&mut ticket, "dev").unwrap();
+        assert!(new.args.iter().all(|a| !a.contains("# Ticket")), "{:?}", new.args);
+        assert_eq!(new.args.last().unwrap(), "opus");
+        let system = std::fs::read_to_string(home.sessions_dir("T-4").join("dev.system.md")).unwrap();
+        assert!(system.contains("# Ticket T-4: Wait here") && system.contains("Some details") && system.contains("the plan"));
+        assert!(new.draft.is_none());
+
+        ArtifactStore::new(&home, &config, "T-4").write("notes", "fix x").unwrap();
+        let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
+        assert!(resumed.draft.as_deref().unwrap().contains("changed since you last worked on it: notes"));
+        assert!(resumed.args.iter().all(|a| !a.contains("changed since")));
+    }
+
+    #[test]
+    fn external_terminal_sends_reentry_even_in_wait_mode() {
+        let (_dir, home, config) = fixture_with("terminal = \"external\"");
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-5"), "T", "", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        launcher.prepare(&mut ticket, "dev").unwrap();
+        ArtifactStore::new(&home, &config, "T-5").write("notes", "fix x").unwrap();
+        let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
+        assert!(resumed.draft.is_none());
+        assert!(resumed.args.last().unwrap().contains("changed since"));
     }
 
     #[test]

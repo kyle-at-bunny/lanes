@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 
 use anyhow::{Context, Result, bail};
@@ -9,9 +9,9 @@ use serde_json::Value;
 use crate::artifacts::ArtifactStore;
 use crate::board_cli::{self, ConfigAction, TicketAction};
 use crate::config::BoardConfig;
-use crate::paths::{LanesHome, TICKET_ENV, now_unix};
+use crate::paths::{COLUMN_ENV, LanesHome, TICKET_ENV, now_unix};
 use crate::session::LaunchSpec;
-use crate::state::{StateStore, StatusSnapshot, hook_state, session_id_of, status_snapshot};
+use crate::state::{StateStore, StatusSnapshot, edited_file, hook_state, session_id_of, status_snapshot};
 
 #[derive(Debug, Parser)]
 #[command(name = "lanes", about = "Kanban board for interactive Claude Code sessions")]
@@ -102,10 +102,22 @@ pub fn run(cli: &Cli, command: &Command) -> Result<()> {
 
 fn record_hook(home: &LanesHome) -> Result<()> {
     let input = read_stdin_json()?;
+    record_artifact_edit(home, &input)?;
     let (Some(session_id), Some(state)) = (session_id_of(&input), hook_state(&input)) else {
         return Ok(());
     };
     StateStore::new(home.clone()).write_hook(&session_id, &state)
+}
+
+/// Attributes a session's direct edit of an artifact file to its stage.
+fn record_artifact_edit(home: &LanesHome, input: &Value) -> Result<()> {
+    let (Some(path), Ok(ticket)) = (edited_file(input), std::env::var(TICKET_ENV)) else {
+        return Ok(());
+    };
+    let config = BoardConfig::load(home)?;
+    let column = std::env::var(COLUMN_ENV).ok();
+    ArtifactStore::new(home, &config, &ticket).record_file_write(Path::new(path), column.as_deref())?;
+    Ok(())
 }
 
 fn status_line(home: &LanesHome) -> Result<()> {
@@ -163,7 +175,8 @@ fn artifact(home: &LanesHome, action: &ArtifactAction) -> Result<()> {
                 None | Some("-") => read_stdin()?,
                 Some(value) => value.to_string(),
             };
-            ArtifactStore::new(home, &config, &ticket).write(name, &value)?;
+            let column = std::env::var(COLUMN_ENV).ok();
+            ArtifactStore::new(home, &config, &ticket).write_by(name, &value, column.as_deref())?;
             println!("saved artifact '{name}' for ticket {ticket}");
         }
         ArtifactAction::Get { name, ticket } => {

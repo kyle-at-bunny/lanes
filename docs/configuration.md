@@ -29,7 +29,8 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | `model` | none | Default `--model` for every session (e.g. `"opus"`, `"sonnet"`). |
 | `effort` | none | Default `--effort` for every session. |
 | `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one as a Windows Terminal tab. |
-| `kickoff_inline_limit` | `6000` | First prompts longer than this many characters are written to a file, and Claude is asked to read it. |
+| `start` | `"wait"` | How a new session starts. `"wait"` puts the ticket brief (title, description, Jira link, inputs from earlier stages) into the system prompt and opens Claude on an empty input box, so you set the first task. `"prompt"` sends the brief as the first message, so Claude starts working straight away. Columns can override it. |
+| `kickoff_inline_limit` | `6000` | With `start = "prompt"`, briefs longer than this many characters are written to a file, and Claude is asked to read it. |
 | `theme` | `"system"` | `"system"`, `"light"` or `"dark"`. The top-bar button updates this. |
 | `terminal_theme` | `"match"` | `"match"` follows the app theme; `"dark"` keeps terminals dark in light mode. |
 | `cleanup_on_done` | `false` | Offer **Finish & clean up** automatically when a card lands in the last column. |
@@ -47,7 +48,7 @@ description = "Implementation plan: goal, approach, files to change, risks, and 
 
 [artifacts.branch]
 type = "text"
-description = "Repository path and branch name holding the implementation, plus the PR URL if one was opened."
+description = "One line per repository, exactly in this format: `<absolute repo path> | <branch> | <PR URL or \"no PR\">`. No other text."
 ```
 
 The `description` is shown to both sides: the producing stage is told what to write, and the consuming stage is told what it is reading.
@@ -56,6 +57,15 @@ The `description` is shown to both sides: the producing stage is told what to wr
 - **Text artifacts** are saved with `lanes artifact set --ticket <ID> <name> "<value>"`. Claude is given the exact command.
 - **Optional inputs:** in `consumes`, a trailing `?` (e.g. `"review_notes?"`) marks the input as optional. Missing optional inputs are simply left out of the prompt.
 - **Missing outputs:** moving a ticket forward when any non-optional `produces` artifact is missing asks for confirmation. It never blocks.
+
+### In the app
+
+The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and flags missing required inputs and outputs. The **Artifacts** tab shows them in full, grouped into **Inputs** (consumed by the current column), **Outputs** (produced by it; missing required ones are highlighted) and a collapsed **Other**.
+
+- **Provenance:** each artifact shows who last wrote it and when, e.g. "written by Dev · 5m ago". `lanes artifact set` records the stage it ran in, and a session's own edits to a file artifact are recorded through its hooks. A file changed outside any session shows "updated … ago".
+- **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** for your editor.
+- **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with **Open folder** / **VS Code** buttons, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
+- **Links:** URLs open in the browser, and local paths (`C:\…`, `\\server\…`, `~/…`) get **Open folder** / **VS Code** buttons.
 
 ## `[[columns]]`
 
@@ -83,7 +93,8 @@ permission_mode = "plan"
 | `model`, `effort` | Override the defaults for this stage. |
 | `permission_mode` | Claude Code permission mode for this stage, e.g. `"plan"` or `"acceptEdits"`. |
 | `extra_args` | Extra `claude` arguments, e.g. `["--add-dir", "~/projects/shared"]`. |
-| `reentry` | Template for the message sent when a ticket returns to this stage with changed inputs. |
+| `start` | `"wait"` or `"prompt"`; overrides `[defaults] start` for this stage (e.g. `"prompt"` for a QA stage that should just run). |
+| `reentry` | Template for the message used when a ticket returns to this stage with changed inputs. With `start = "wait"` it is typed into Claude's input box without being sent, so you can edit it first. In external terminals, and with `"prompt"`, it is sent. |
 | `handoff` | Template for the message the **Request handoff** button sends, asking the session to write its outputs. |
 | `cleanup` | Command run during **Finish & clean up** in this stage's session folder. |
 | `[[columns.actions]]` | Action buttons shown on tickets in this column. |
@@ -130,7 +141,7 @@ Commands run through `cmd.exe`, so use `%USERPROFILE%` rather than `~` inside th
 
 Prompts are [minijinja](https://docs.rs/minijinja) templates. Lanes adds two generated sections of its own:
 - **"Stage outputs"** goes into the system prompt. It lists each artifact the stage produces and how to write it.
-- **"Inputs from earlier stages"** goes into the first prompt. It lists each artifact the stage consumes, inlined or by path.
+- **"Inputs from earlier stages"** is part of the ticket brief. It lists each artifact the stage consumes, inlined or by path. With `start = "wait"` the brief goes into the system prompt, under "Ticket brief"; with `"prompt"` it is the first message.
 
 | Variable | Available in | Value |
 | --- | --- | --- |

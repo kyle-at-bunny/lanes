@@ -24,13 +24,23 @@ pub struct TimelineEvent {
     pub at: u64,
     pub kind: EventKind,
     pub detail: String,
+    /// Who caused the event: a column id for a stage's session, or `USER` for the app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
+
+/// The `by` value for changes made by the user in the app.
+pub const USER: &str = "user";
 
 /// Append-only per-ticket event log (JSON lines), so the CLI and the GUI can both write without clobbering ticket.toml.
 pub fn record(home: &LanesHome, ticket_id: &str, kind: EventKind, detail: impl Into<String>) -> Result<()> {
+    record_by(home, ticket_id, kind, detail, None)
+}
+
+pub fn record_by(home: &LanesHome, ticket_id: &str, kind: EventKind, detail: impl Into<String>, by: Option<&str>) -> Result<()> {
     let path = home.ticket_dir(ticket_id).join("events.jsonl");
     std::fs::create_dir_all(home.ticket_dir(ticket_id))?;
-    let event = TimelineEvent { at: now_unix(), kind, detail: detail.into() };
+    let event = TimelineEvent { at: now_unix(), kind, detail: detail.into(), by: by.map(str::to_string) };
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{}", serde_json::to_string(&event)?)?;
     Ok(())

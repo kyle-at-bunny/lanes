@@ -20,7 +20,7 @@ its own API token for this.
   `{{ lanes }} ticket create "<summary>" --id <KEY> --jira <browse URL> --description "<description as plain text>"`.
   Use the issue key as the ticket id. Check `ticket list` first and skip issues that already exist.
 - **Link an existing ticket:** `{{ lanes }} ticket edit <id> --jira <browse URL>`.
-- A linked ticket shows an "Open in Jira" link, and every stage's first prompt includes the URL.
+- A linked ticket shows an "Open in Jira" link, and every stage's ticket brief includes the URL.
 - Use the browse URL (`https://<site>/browse/<KEY>`). A bare key only works when `[jira] site` is set in board.toml.
 - Never change Jira itself unless the user explicitly asks.
 
@@ -29,8 +29,10 @@ its own API token for this.
 - `[[columns]]` entries appear in order. Keys: `id`, `title`, `cwd` (folder the stage's sessions run in; a
   template such as `~/worktrees/{{ '{{' }} ticket.id {{ '}}' }}`; omit for holding lanes like Backlog/Done), `prompt` (file under
   `{{ home }}/prompts/`), `consumes` and `produces` (artifact names; a trailing `?` makes an input optional),
-  `model`, `effort`, `permission_mode`, `extra_args`, `reentry`, `handoff`, `cleanup`, and `[[columns.actions]]`
+  `model`, `effort`, `permission_mode`, `extra_args`, `start`, `reentry`, `handoff`, `cleanup`, and `[[columns.actions]]`
   buttons (`label`, `command`, optional `cwd`).
+- `start` (in `[defaults]` or per column): `"wait"` (default) gives a new session the ticket brief as context and
+  waits for the user's first message; `"prompt"` sends the brief as the first message so Claude starts at once.
 - `[artifacts.<name>]` has `type = "file"` or `"text"`, a `description`, and optional `inline = true`.
 - `[defaults]` holds board-wide settings; `[[actions]]` are buttons on every ticket; `[jira]` has `site`
   (and `email`, only for Lanes' own API import).

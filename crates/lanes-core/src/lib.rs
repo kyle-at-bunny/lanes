@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod assistant;
+pub mod artifact_view;
 pub mod artifacts;
 pub mod board;
 pub mod board_cli;

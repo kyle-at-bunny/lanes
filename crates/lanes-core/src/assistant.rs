@@ -44,6 +44,7 @@ pub fn prepare(home: &LanesHome, config: &BoardConfig, lanes_exe: &Path) -> Resu
         cwd: home.root().to_path_buf(),
         env: vec![(HOME_ENV.into(), home.root().to_string_lossy().into_owned())],
         title: "Board assistant".into(),
+        draft: None,
     })
 }
 

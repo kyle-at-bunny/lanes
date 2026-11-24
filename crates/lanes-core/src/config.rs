@@ -63,6 +63,18 @@ pub struct Defaults {
     pub terminal_theme: TerminalTheme,
     /// Offer "Finish & clean up" automatically when a ticket lands in the last column.
     pub cleanup_on_done: bool,
+    /// Whether new sessions wait for the user or start working on the brief straight away.
+    pub start: StartMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StartMode {
+    /// The brief goes into the system prompt and the session opens on an empty input box.
+    #[default]
+    Wait,
+    /// The brief is sent as the first message, so Claude starts working immediately.
+    Prompt,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -113,6 +125,7 @@ impl Default for Defaults {
             theme: ThemeSetting::System,
             terminal_theme: TerminalTheme::Match,
             cleanup_on_done: false,
+            start: StartMode::Wait,
         }
     }
 }
@@ -170,6 +183,8 @@ pub struct ColumnDef {
     pub actions: Vec<ActionDef>,
     /// Command run during cleanup in this column's session folder, e.g. removing a worktree.
     pub cleanup: Option<String>,
+    /// Overrides `[defaults] start` for this column.
+    pub start: Option<StartMode>,
 }
 
 /// A user-triggered command button; `command` and `cwd` are minijinja templates.
@@ -188,6 +203,10 @@ impl ColumnDef {
     /// Columns without a working directory (backlog, done) never get a session.
     pub fn has_session(&self) -> bool {
         self.cwd.is_some()
+    }
+
+    pub fn start_mode(&self, defaults: &Defaults) -> StartMode {
+        self.start.unwrap_or(defaults.start)
     }
 
     pub fn consumed(&self) -> impl Iterator<Item = ArtifactRef<'_>> {
@@ -370,6 +389,15 @@ id = "a"
         assert!(text.contains("# my board") && text.contains("# keep me"), "{text}");
         assert_eq!(BoardConfig::load(&home).unwrap().defaults.theme, ThemeSetting::Dark);
         assert_eq!(ThemeSetting::Dark.next(), ThemeSetting::System);
+    }
+
+    #[test]
+    fn start_mode_defaults_to_wait_and_columns_override_it() {
+        let config = BoardConfig::parse("[[columns]]\nid = \"a\"\n[[columns]]\nid = \"qa\"\nstart = \"prompt\"\n").unwrap();
+        assert_eq!(config.column("a").unwrap().start_mode(&config.defaults), StartMode::Wait);
+        assert_eq!(config.column("qa").unwrap().start_mode(&config.defaults), StartMode::Prompt);
+        let prompting = BoardConfig::parse("[defaults]\nstart = \"prompt\"\n[[columns]]\nid = \"a\"\n").unwrap();
+        assert_eq!(prompting.column("a").unwrap().start_mode(&prompting.defaults), StartMode::Prompt);
     }
 
     #[test]

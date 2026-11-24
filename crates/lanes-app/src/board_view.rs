@@ -17,7 +17,7 @@ use lanes_core::cleanup::CleanupPlan;
 use lanes_core::timeline::{self, EventKind};
 use lanes_core::transcript::{self, Speaker, TranscriptEntry};
 use lanes_core::cli::format_duration;
-use lanes_core::config::{ArtifactType, ColumnDef, TerminalMode, ThemeSetting};
+use lanes_core::config::{ColumnDef, TerminalMode, ThemeSetting};
 use lanes_core::paths::now_unix;
 use lanes_core::session::LaunchSpec;
 use lanes_core::state::{AgentStatus, Limit};
@@ -25,6 +25,7 @@ use lanes_core::ticket::Ticket;
 use uuid::Uuid;
 
 mod archive;
+mod artifacts;
 mod assistant;
 mod folders;
 mod sessions_view;
@@ -71,6 +72,7 @@ enum DetailTab {
     Session,
     Timeline,
     Transcript,
+    Artifacts,
 }
 
 struct LoadedTranscript {
@@ -133,6 +135,8 @@ pub struct LanesApp {
     assistant_reset_confirm: bool,
     split: Entity<gpui_kit::component::resizable::ResizableState>,
     ui_prefs: lanes_core::ui_prefs::UiPrefs,
+    artifact_edit: Option<artifacts::ArtifactEdit>,
+    show_other_artifacts: bool,
     _split_resized: Subscription,
     _appearance: Subscription,
 }
@@ -173,6 +177,8 @@ impl LanesApp {
             assistant_reset_confirm: false,
             split,
             ui_prefs,
+            artifact_edit: None,
+            show_other_artifacts: false,
             _split_resized: split_resized,
             _appearance: appearance,
         };
@@ -381,7 +387,10 @@ impl LanesApp {
         let session = PtySession::spawn(&spec, GridSize { columns: 120, rows: 40 })?;
         let terminal = cx.new(|cx| TerminalView::new(spec.session_id, session, cx));
         let handle = terminal.read(cx).focus_handle(cx);
-            handle.focus(window, cx);
+        handle.focus(window, cx);
+        if let Some(draft) = spec.draft {
+            type_draft_when_ready(terminal.clone(), draft, cx);
+        }
         self.terminals.insert(spec.session_id, terminal);
         Ok(())
     }
@@ -476,6 +485,29 @@ impl LanesApp {
         }
         cx.notify();
     }
+}
+
+const DRAFT_SETTLE: Duration = Duration::from_millis(800);
+const DRAFT_TYPE_ANYWAY: Duration = Duration::from_secs(20);
+
+/// Types the draft into Claude's input box once its UI has drawn and gone quiet, so the keystrokes aren't lost during startup.
+fn type_draft_when_ready(terminal: Entity<TerminalView>, draft: String, cx: &mut Context<LanesApp>) {
+    cx.spawn(async move |_, cx| {
+        let started = std::time::Instant::now();
+        loop {
+            cx.background_executor().timer(Duration::from_millis(200)).await;
+            let (exited, quiet) = terminal.read_with(cx, |view, _| (view.session.has_exited(), view.session.quiet_for()));
+            if exited {
+                break;
+            }
+            let settled = started.elapsed() > Duration::from_secs(2) && quiet >= DRAFT_SETTLE;
+            if settled || started.elapsed() > DRAFT_TYPE_ANYWAY {
+                terminal.read_with(cx, |view, _| view.type_text(&draft));
+                break;
+            }
+        }
+    })
+    .detach();
 }
 
 fn open_in_shell(path: &Path) {
@@ -787,7 +819,7 @@ impl LanesApp {
                     .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
                     .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
                     .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
-                    .child(self.render_artifacts(ticket, cx)),
+                    .when_some(self.render_artifact_summary(ticket, cx), |this, summary| this.child(summary)),
             )
             .child(self.render_tab_strip(ticket, cx))
             .child(match (self.detail_tab, terminal) {
@@ -795,6 +827,7 @@ impl LanesApp {
                 (DetailTab::Session, None) => self.render_no_session(ticket, column, window, cx).into_any_element(),
                 (DetailTab::Timeline, _) => self.render_timeline(ticket, cx).into_any_element(),
                 (DetailTab::Transcript, _) => self.render_transcript(ticket, cx).into_any_element(),
+                (DetailTab::Artifacts, _) => self.render_artifacts_tab(ticket, cx).into_any_element(),
             })
             .into_any_element()
     }
@@ -822,7 +855,7 @@ impl LanesApp {
     }
 
     fn render_tab_strip(&self, ticket: &Ticket, cx: &mut Context<Self>) -> impl IntoElement {
-        let tabs = [(DetailTab::Session, "Session"), (DetailTab::Timeline, "Timeline"), (DetailTab::Transcript, "Transcript")];
+        let tabs = [(DetailTab::Session, "Session"), (DetailTab::Timeline, "Timeline"), (DetailTab::Transcript, "Transcript"), (DetailTab::Artifacts, "Artifacts")];
         let buttons: Vec<_> = tabs
             .into_iter()
             .map(|(tab, label)| {
@@ -842,12 +875,17 @@ impl LanesApp {
             .into_iter()
             .rev()
             .map(|event| {
+                let detail = match event.by.as_deref() {
+                    Some(timeline::USER) => format!("{} (by you)", event.detail),
+                    Some(column) => format!("{} (by {})", event.detail, self.board.column_title(column)),
+                    None => event.detail,
+                };
                 h_flex()
                     .gap_3()
                     .text_xs()
                     .child(div().w(px(70.)).text_color(theme.muted_foreground).child(format!("{} ago", format_duration(now.saturating_sub(event.at)))))
                     .child(div().w(px(110.)).font_weight(FontWeight::SEMIBOLD).child(event_label(event.kind)))
-                    .child(div().flex_1().child(event.detail))
+                    .child(div().flex_1().child(detail))
                     .into_any_element()
             })
             .collect();
@@ -957,45 +995,6 @@ impl LanesApp {
             .when_some(ticket.session(&ticket.column).map(|r| r.cwd.clone()), |this, cwd| {
                 this.child(div().text_xs().text_color(cx.theme().muted_foreground).child(cwd.display().to_string()))
             })
-    }
-
-    fn render_artifacts(&self, ticket: &Ticket, cx: &mut Context<Self>) -> impl IntoElement {
-        let store = self.board.artifacts(&ticket.id);
-        let column = self.board.config.column(&ticket.column);
-        let produced: Vec<String> = column.map(|c| c.produced().map(|a| a.name.to_string()).collect()).unwrap_or_default();
-        let rows: Vec<_> = self
-            .board
-            .config
-            .artifacts
-            .iter()
-            .map(|(name, def)| {
-                let content = store.read(name).ok().flatten();
-                let preview = match (&content, def.kind) {
-                    (None, _) => "not produced".to_string(),
-                    (Some(_), ArtifactType::File) => format!("{} lines", content.as_deref().unwrap_or_default().lines().count()),
-                    (Some(text), ArtifactType::Text) => text.lines().next().unwrap_or_default().chars().take(70).collect(),
-                };
-                let path = store.file_path(name, def);
-                let is_output = produced.contains(name);
-                h_flex()
-                    .gap_2()
-                    .text_xs()
-                    .child(div().w(px(12.)).child(if content.is_some() { "✓" } else { "·" }))
-                    .child(div().w(px(110.)).font_weight(if is_output { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }).child(name.clone()))
-                    .child(div().flex_1().min_w_0().truncate().text_color(cx.theme().muted_foreground).child(preview))
-                    .when(def.kind == ArtifactType::File, |this| {
-                        this.child(Button::new(SharedString::from(format!("open-{name}"))).label("Open").ghost().xsmall().on_click(move |_, _, _| {
-                            if !path.exists() {
-                                let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
-                                let _ = std::fs::write(&path, "");
-                            }
-                            open_in_shell(&path)
-                        }))
-                    })
-                    .into_any_element()
-            })
-            .collect();
-        v_flex().gap_1().pt_2().child(div().text_xs().text_color(cx.theme().muted_foreground).child("Artifacts (bold = produced here)")).children(rows)
     }
 
     fn render_no_session(&self, ticket: &Ticket, column: Option<&ColumnDef>, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
