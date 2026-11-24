@@ -5,7 +5,10 @@ use gpui_kit::component::{ActiveTheme, Sizable, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use lanes_core::ticket::Ticket;
+use lanes_core::artifact_view::display_path;
 use lanes_core::workdir;
+
+use super::artifacts::PATH_DISPLAY_CHARS;
 
 use super::LanesApp;
 
@@ -88,7 +91,7 @@ impl LanesApp {
                         .flex_wrap()
                         .gap_2()
                         .child(div().text_color(theme.muted_foreground).child("New sessions start in"))
-                        .child(div().font_family(theme.mono_font_family.clone()).child(folder))
+                        .child(div().font_family(theme.mono_font_family.clone()).child(display_path(&folder, PATH_DISPLAY_CHARS)))
                         .child(div().text_color(theme.muted_foreground).child(format!("({})", source.describe())))
                         .child(Button::new("change-folder").label("Change").ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
                             this.start_folder_edit(&edit_id, window, cx)
@@ -100,7 +103,7 @@ impl LanesApp {
                         }),
                 )
                 .when_some(session_elsewhere, |this, existing| {
-                    this.child(div().text_color(theme.warning).child(format!("This stage's existing session stays in {existing}.")))
+                    this.child(div().text_color(theme.warning).child(format!("This stage's existing session stays in {}.", display_path(&existing, PATH_DISPLAY_CHARS))))
                 })
                 .into_any_element(),
         )

@@ -355,7 +355,7 @@ fn path_with_buttons(id: &str, path: &str, theme: &Theme) -> Vec<AnyElement> {
     pieces
 }
 
-const PATH_DISPLAY_CHARS: usize = 48;
+pub(super) const PATH_DISPLAY_CHARS: usize = 48;
 
 fn path_label(path: &str, theme: &Theme) -> AnyElement {
     div().font_family(theme.mono_font_family.clone()).child(artifact_view::display_path(path, PATH_DISPLAY_CHARS)).into_any_element()

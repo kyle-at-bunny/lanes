@@ -12,6 +12,7 @@ use gpui_kit::component::{ActiveTheme, IconName, Sizable, Theme, ThemeMode, Wind
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use lanes_core::actions::{self, ActionOutcome};
+use lanes_core::artifact_view::display_path;
 use lanes_core::board::Board;
 use lanes_core::cleanup::CleanupPlan;
 use lanes_core::timeline::{self, EventKind};
@@ -999,7 +1000,7 @@ impl LanesApp {
                 this.child(Button::new("suspend").label("Suspend").ghost().small().on_click(cx.listener(move |this, _, _, cx| this.suspend_session(id, cx))))
             })
             .when_some(ticket.session(&ticket.column).map(|r| r.cwd.clone()), |this, cwd| {
-                this.child(div().text_xs().text_color(cx.theme().muted_foreground).child(cwd.display().to_string()))
+                this.child(div().text_xs().text_color(cx.theme().muted_foreground).child(display_path(&cwd.display().to_string(), artifacts::PATH_DISPLAY_CHARS)))
             })
     }
 
@@ -1011,7 +1012,15 @@ impl LanesApp {
             (true, Some(record)) => format!("Session {} is parked. Resume it to continue where it left off.", record.id),
             (true, None) => "No session yet for this stage.".to_string(),
         };
-        div().flex_1().flex().items_center().justify_center().p_4().text_sm().text_color(cx.theme().muted_foreground).child(message)
+        div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p_4()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(div().w_full().min_w_0().text_center().child(message))
     }
 }
 
