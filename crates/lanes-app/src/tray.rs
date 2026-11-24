@@ -28,12 +28,7 @@ impl Tray {
         menu.append(&show)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&quit)?;
-        let icon = TrayIconBuilder::new()
-            .with_icon(render_icon(false)?)
-            .with_tooltip("Lanes")
-            .with_menu(Box::new(menu))
-            .with_menu_on_left_click(false)
-            .build()?;
+        let icon = TrayIconBuilder::new().with_icon(render_icon(false)?).with_tooltip("Lanes").with_menu(Box::new(menu)).with_menu_on_left_click(false).build()?;
         Ok(Self { icon, show_id: show.id().clone(), quit_id: quit.id().clone(), waiting: 0 })
     }
 
@@ -42,8 +37,7 @@ impl Tray {
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
             let left_click = matches!(
                 event,
-                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
-                    | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. }
+                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. }
             );
             if left_click {
                 commands.push(TrayCommand::Show);

@@ -19,6 +19,8 @@ use crate::pty::{GridSize, Listener, PtySession};
 pub const KEY_CONTEXT: &str = "Terminal";
 const FONT_FAMILY: &str = "Cascadia Mono";
 const FONT_SIZE: f32 = 14.0;
+/// Wheel lines that add up to one PgUp/PgDn sent to a full-screen app (one wheel notch on Windows).
+const LINES_PER_PAGE_KEY: f32 = 3.0;
 
 /// Cell geometry from the last layout, shared between painting and mouse handling.
 #[derive(Clone, Copy, Default)]
@@ -123,19 +125,21 @@ impl TerminalView {
     }
 
     fn on_scroll(&mut self, event: &ScrollEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let alternate = self.session.term.lock().mode().contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL);
         let line_height = self.geometry.get().line_height.max(px(1.));
-        self.scroll_remainder += event.delta.pixel_delta(line_height).y / line_height;
-        let lines = self.scroll_remainder.trunc() as i32;
-        if lines == 0 {
+        let lines_per_step = if alternate { LINES_PER_PAGE_KEY } else { 1.0 };
+        self.scroll_remainder += event.delta.pixel_delta(line_height).y / line_height / lines_per_step;
+        let steps = self.scroll_remainder.trunc() as i32;
+        if steps == 0 {
             return;
         }
-        self.scroll_remainder -= lines as f32;
-        let alternate = self.session.term.lock().mode().contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL);
+        self.scroll_remainder -= steps as f32;
         if alternate {
-            let key: &[u8] = if lines > 0 { b"\x1b[A" } else { b"\x1b[B" };
-            self.session.write(&key.repeat(lines.unsigned_abs() as usize));
+            // Full-screen apps like Claude Code treat arrows as prompt history, so scroll them with page keys.
+            let key: &[u8] = if steps > 0 { b"\x1b[5~" } else { b"\x1b[6~" };
+            self.session.write(&key.repeat(steps.unsigned_abs() as usize));
         } else {
-            self.scroll(Scroll::Delta(lines));
+            self.scroll(Scroll::Delta(steps));
         }
         cx.notify();
     }
@@ -285,12 +289,15 @@ fn snapshot(term: &Term<Listener>, geometry: Geometry, palette: &Palette) -> Fra
 }
 
 fn push_cell(row: &mut Vec<Span>, column: usize, text: String, style: CellStyle, wide: bool) {
-    if let Some(last) = row.last_mut() {
-        if !wide && !last.wide && last.style == style && last.column + last.cells == column {
-            last.text.push_str(&text);
-            last.cells += 1;
-            return;
-        }
+    if let Some(last) = row.last_mut()
+        && !wide
+        && !last.wide
+        && last.style == style
+        && last.column + last.cells == column
+    {
+        last.text.push_str(&text);
+        last.cells += 1;
+        return;
     }
     row.push(Span { column, cells: if wide { 2 } else { 1 }, text, style, wide });
 }

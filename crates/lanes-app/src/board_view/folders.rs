@@ -4,8 +4,8 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, Sizable, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use lanes_core::ticket::Ticket;
 use lanes_core::artifact_view::display_path;
+use lanes_core::ticket::Ticket;
 use lanes_core::workdir;
 
 use super::artifacts::PATH_DISPLAY_CHARS;
@@ -93,13 +93,21 @@ impl LanesApp {
                         .child(div().text_color(theme.muted_foreground).child("New sessions start in"))
                         .child(div().font_family(theme.mono_font_family.clone()).child(display_path(&folder, PATH_DISPLAY_CHARS)))
                         .child(div().text_color(theme.muted_foreground).child(format!("({})", source.describe())))
-                        .child(Button::new("change-folder").label("Change").ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
-                            this.start_folder_edit(&edit_id, window, cx)
-                        })))
+                        .child(
+                            Button::new("change-folder")
+                                .label("Change")
+                                .ghost()
+                                .xsmall()
+                                .on_click(cx.listener(move |this, _, window, cx| this.start_folder_edit(&edit_id, window, cx))),
+                        )
                         .when(has_overrides, |this| {
-                            this.child(Button::new("clear-folders").label("Use column default").ghost().xsmall().on_click(cx.listener(
-                                move |this, _, window, cx| this.clear_folder_overrides(&clear_id, window, cx),
-                            )))
+                            this.child(
+                                Button::new("clear-folders")
+                                    .label("Use column default")
+                                    .ghost()
+                                    .xsmall()
+                                    .on_click(cx.listener(move |this, _, window, cx| this.clear_folder_overrides(&clear_id, window, cx))),
+                            )
                         }),
                 )
                 .when_some(session_elsewhere, |this, existing| {
@@ -118,12 +126,20 @@ impl LanesApp {
                 h_flex()
                     .flex_wrap()
                     .gap_1()
-                    .child(Button::new("folder-all").label("All stages").primary().xsmall().on_click(cx.listener(|this, _, window, cx| {
-                        this.save_folder(Scope::AllStages, window, cx)
-                    })))
-                    .child(Button::new("folder-stage").label(format!("{column_title} only")).outline().xsmall().on_click(cx.listener(
-                        |this, _, window, cx| this.save_folder(Scope::ThisStage, window, cx),
-                    )))
+                    .child(
+                        Button::new("folder-all")
+                            .label("All stages")
+                            .primary()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| this.save_folder(Scope::AllStages, window, cx))),
+                    )
+                    .child(
+                        Button::new("folder-stage")
+                            .label(format!("{column_title} only"))
+                            .outline()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| this.save_folder(Scope::ThisStage, window, cx))),
+                    )
                     .child(Button::new("folder-cancel").label("Cancel").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                         this.folder_edit = None;
                         cx.notify();

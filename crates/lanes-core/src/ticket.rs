@@ -95,6 +95,11 @@ impl TicketStore {
         list_in(&self.home.tickets_dir())
     }
 
+    /// Like `list`, but skips ticket files that can't be read instead of failing, so one bad file doesn't hide the board.
+    pub fn scan(&self) -> Result<TicketScan> {
+        scan_in(&self.home.tickets_dir())
+    }
+
     pub fn list_archived(&self) -> Result<Vec<Ticket>> {
         list_in(&self.home.archive_dir())
     }
@@ -119,9 +124,15 @@ impl TicketStore {
     }
 
     pub fn load(&self, id: &str) -> Result<Ticket> {
-        let path = self.home.ticket_file(id);
-        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        load_ticket(&self.home.ticket_file(id))
+    }
+
+    /// Replaces the description, re-reading the file first so changes made meanwhile (e.g. by the CLI) are kept.
+    pub fn set_description(&self, id: &str, description: &str) -> Result<Ticket> {
+        let mut ticket = self.load(id)?;
+        ticket.description = description.trim().to_string();
+        self.save(&ticket)?;
+        Ok(ticket)
     }
 
     pub fn save(&self, ticket: &Ticket) -> Result<()> {
@@ -181,20 +192,42 @@ impl TicketStore {
     }
 }
 
+/// Tickets that loaded, plus one message per ticket file that couldn't be read or parsed.
+#[derive(Debug, Default)]
+pub struct TicketScan {
+    pub tickets: Vec<Ticket>,
+    pub unreadable: Vec<String>,
+}
+
 fn list_in(dir: &std::path::Path) -> Result<Vec<Ticket>> {
-    if !dir.exists() {
-        return Ok(Vec::new());
+    let scan = scan_in(dir)?;
+    match scan.unreadable.into_iter().next() {
+        Some(problem) => anyhow::bail!(problem),
+        None => Ok(scan.tickets),
     }
-    let mut tickets = Vec::new();
+}
+
+fn scan_in(dir: &std::path::Path) -> Result<TicketScan> {
+    let mut scan = TicketScan::default();
+    if !dir.exists() {
+        return Ok(scan);
+    }
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path().join("ticket.toml");
         if path.exists() {
-            let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-            tickets.push(toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?);
+            match load_ticket(&path) {
+                Ok(ticket) => scan.tickets.push(ticket),
+                Err(err) => scan.unreadable.push(format!("{err:#}")),
+            }
         }
     }
-    tickets.sort_by(|a: &Ticket, b: &Ticket| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
-    Ok(tickets)
+    scan.tickets.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    Ok(scan)
+}
+
+fn load_ticket(path: &std::path::Path) -> Result<Ticket> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
 #[cfg(test)]
@@ -256,5 +289,37 @@ mod tests {
         assert_eq!(reloaded.column, "plan");
         assert_eq!(reloaded.last_arrival_from(), Some("dev"));
         assert_eq!(store.list().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn set_description_trims_and_keeps_other_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = TicketStore::new(LanesHome::new(dir.path()));
+        let mut ticket = store.create(Some("T-1"), "title", "old", "dev").unwrap();
+        ticket.cwd = Some("D:/repos/app".into());
+        store.save(&ticket).unwrap();
+
+        let updated = store.set_description("T-1", "  line one\nline two  \n").unwrap();
+        assert_eq!(updated.description, "line one\nline two");
+        let reloaded = store.load("T-1").unwrap();
+        assert_eq!(reloaded.description, "line one\nline two");
+        assert_eq!(reloaded.cwd.as_deref(), Some("D:/repos/app"));
+    }
+
+    #[test]
+    fn scan_skips_unreadable_tickets_that_list_rejects() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = LanesHome::new(dir.path());
+        let store = TicketStore::new(home.clone());
+        store.create(Some("T-1"), "good", "", "dev").unwrap();
+        let broken = home.ticket_dir("T-2");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::write(broken.join("ticket.toml"), "id = \"T-2\"").unwrap();
+
+        let scan = store.scan().unwrap();
+        assert_eq!(scan.tickets.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["T-1"]);
+        assert_eq!(scan.unreadable.len(), 1);
+        assert!(scan.unreadable[0].contains("T-2") && scan.unreadable[0].contains("missing field `title`"));
+        assert!(store.list().is_err());
     }
 }

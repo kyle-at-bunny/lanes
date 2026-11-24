@@ -5,11 +5,12 @@ use anyhow::{Context, Result};
 use crate::actions::{self, PreparedAction};
 use crate::artifacts::ArtifactStore;
 use crate::config::{ActionDef, BoardConfig};
-use crate::timeline::{self, EventKind};
+use crate::config_schema;
 use crate::paths::LanesHome;
 use crate::session::{LaunchSpec, SessionLauncher};
 use crate::state::StateStore;
 use crate::ticket::{Ticket, TicketStore};
+use crate::timeline::{self, EventKind};
 
 /// What the user should know before a move; moving is never blocked.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -29,6 +30,8 @@ pub struct Board {
 impl Board {
     pub fn open(home: LanesHome, lanes_exe: PathBuf) -> Result<Self> {
         let config = BoardConfig::load_or_init(&home)?;
+        // A stale or unwritable schema only costs editor completion, so it never blocks opening the board.
+        let _ = config_schema::refresh_installed_schema(&home);
         Ok(Self { tickets: TicketStore::new(home.clone()), states: StateStore::new(home.clone()), home, config, lanes_exe })
     }
 

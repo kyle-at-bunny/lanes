@@ -49,12 +49,17 @@ impl LanesApp {
 
     fn load_open_issues(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(config) = self.jira_config() else { return };
-        self.run_jira(window, cx, move |client| client.my_open_issues(&config.open_issues_jql), |app, issues, _window, cx| {
-            if let Some(form) = app.jira_form.as_mut() {
-                form.issues = Some(issues);
-            }
-            cx.notify();
-        });
+        self.run_jira(
+            window,
+            cx,
+            move |client| client.my_open_issues(&config.open_issues_jql),
+            |app, issues, _window, cx| {
+                if let Some(form) = app.jira_form.as_mut() {
+                    form.issues = Some(issues);
+                }
+                cx.notify();
+            },
+        );
     }
 
     fn import_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -67,10 +72,10 @@ impl LanesApp {
     }
 
     fn toggle_issue(&mut self, key: String, cx: &mut Context<Self>) {
-        if let Some(form) = self.jira_form.as_mut() {
-            if !form.selected.remove(&key) {
-                form.selected.insert(key);
-            }
+        if let Some(form) = self.jira_form.as_mut()
+            && !form.selected.remove(&key)
+        {
+            form.selected.insert(key);
         }
         cx.notify();
     }
@@ -162,12 +167,22 @@ impl LanesApp {
                     h_flex()
                         .flex_wrap()
                         .gap_1()
-                        .child(Button::new("jira-import-keys").label("Import keys").primary().xsmall().loading(form.busy).on_click(cx.listener(|this, _, window, cx| {
-                            this.import_typed_keys(window, cx)
-                        })))
-                        .child(Button::new("jira-load-mine").label("My open issues").outline().xsmall().loading(form.busy).on_click(cx.listener(|this, _, window, cx| {
-                            this.load_open_issues(window, cx)
-                        })))
+                        .child(
+                            Button::new("jira-import-keys")
+                                .label("Import keys")
+                                .primary()
+                                .xsmall()
+                                .loading(form.busy)
+                                .on_click(cx.listener(|this, _, window, cx| this.import_typed_keys(window, cx))),
+                        )
+                        .child(
+                            Button::new("jira-load-mine")
+                                .label("My open issues")
+                                .outline()
+                                .xsmall()
+                                .loading(form.busy)
+                                .on_click(cx.listener(|this, _, window, cx| this.load_open_issues(window, cx))),
+                        )
                         .child(Button::new("jira-cancel").label("Cancel").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                             this.jira_form = None;
                             cx.notify();
@@ -176,9 +191,11 @@ impl LanesApp {
                 .when(loaded == Some(0), |this| this.child(div().text_xs().text_color(theme.muted_foreground).child("No open issues assigned to you.")))
                 .when(!picker.is_empty(), |this| {
                     this.child(v_flex().id("jira-picker").max_h(px(260.)).overflow_y_scroll().gap_0p5().children(picker)).child(
-                        Button::new("jira-import-selected").label(format!("Import selected ({selected})")).primary().xsmall().on_click(cx.listener(
-                            |this, _, window, cx| this.import_selected(window, cx),
-                        )),
+                        Button::new("jira-import-selected")
+                            .label(format!("Import selected ({selected})"))
+                            .primary()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| this.import_selected(window, cx))),
                     )
                 }),
         )

@@ -1,26 +1,32 @@
 use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{Context, Result, bail};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::defaults;
 use crate::paths::{LanesHome, write_atomic};
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+/// A Lanes board: board.toml in the board folder (~/.lanes by default).
 pub struct BoardConfig {
+    /// Settings that apply to every column unless a column overrides them.
     #[serde(default)]
     pub defaults: Defaults,
+    /// Artifacts that stages produce and consume, keyed by name.
     #[serde(default)]
     pub artifacts: BTreeMap<String, ArtifactDef>,
+    /// The board's columns, left to right.
     pub columns: Vec<ColumnDef>,
     /// Actions shown on every ticket, in addition to its column's own.
     #[serde(default)]
     pub actions: Vec<ActionDef>,
+    /// Link tickets to Jira issues and import them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jira: Option<JiraConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct JiraConfig {
     /// e.g. https://your-site.atlassian.net
     pub site: String,
@@ -51,15 +57,22 @@ fn default_open_issues_jql() -> String {
     "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC".into()
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
 pub struct Defaults {
+    /// Claude Code executable; a bare name is resolved to its .exe on PATH (or ~/.local/bin).
     pub claude_path: String,
+    /// Default --model for every session, e.g. "opus" or "sonnet".
     pub model: Option<String>,
+    /// Default --effort for every session.
     pub effort: Option<String>,
+    /// Where sessions run: inside Lanes, or as Windows Terminal tabs.
     pub terminal: TerminalMode,
+    /// With start = "prompt", briefs longer than this many characters are written to a file for Claude to read.
     pub kickoff_inline_limit: usize,
+    /// App colour scheme; the top-bar button updates this.
     pub theme: ThemeSetting,
+    /// Terminal colour scheme.
     pub terminal_theme: TerminalTheme,
     /// Offer "Finish & clean up" automatically when a ticket lands in the last column.
     pub cleanup_on_done: bool,
@@ -67,7 +80,7 @@ pub struct Defaults {
     pub start: StartMode,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum StartMode {
     /// The brief goes into the system prompt and the session opens on an empty input box.
@@ -77,7 +90,7 @@ pub enum StartMode {
     Prompt,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeSetting {
     #[default]
@@ -104,7 +117,7 @@ impl ThemeSetting {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalTheme {
     /// Follow the app's light/dark mode.
@@ -130,28 +143,37 @@ impl Default for Defaults {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalMode {
+    /// Run sessions inside Lanes.
     Embedded,
+    /// Open each session as a Windows Terminal tab.
     External,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactType {
+    /// A file in the ticket's artifacts folder.
     File,
+    /// A short value saved with `lanes artifact set`.
     Text,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Something one stage produces and later stages consume.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct ArtifactDef {
+    /// "file" or "text".
     #[serde(rename = "type")]
     pub kind: ArtifactType,
+    /// Shown to both sides: the producing stage is told what to write, the consuming stage what it is reading.
     #[serde(default)]
     pub description: String,
+    /// Files only: paste the content into the next stage's brief instead of just giving its path.
     #[serde(default)]
     pub inline: bool,
+    /// Files only: name inside the ticket's artifacts folder (default "<name>.md").
     #[serde(default, rename = "path")]
     pub file_name: Option<String>,
 }
@@ -162,23 +184,37 @@ impl ArtifactDef {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+/// A board column; columns with a `cwd` run a Claude session per ticket.
 pub struct ColumnDef {
+    /// Unique identifier used in ticket files and the CLI; changing it orphans tickets in the column.
     pub id: String,
+    /// Display name (defaults to `id`).
     pub title: Option<String>,
+    /// Folder the stage's sessions run in (template, `~` expanded); omit for holding lanes like Backlog and Done.
     pub cwd: Option<String>,
+    /// Prompt template relative to the board folder, appended to Claude's system prompt when a session is created.
     pub prompt: Option<String>,
+    /// Artifact names this stage reads; a trailing `?` marks one as optional.
     #[serde(default)]
     pub consumes: Vec<String>,
+    /// Artifact names this stage writes; a trailing `?` marks one as optional.
     #[serde(default)]
     pub produces: Vec<String>,
+    /// Overrides `[defaults] model` for this stage.
     pub model: Option<String>,
+    /// Overrides `[defaults] effort` for this stage.
     pub effort: Option<String>,
+    /// Claude Code permission mode for this stage, e.g. "plan" or "acceptEdits".
     pub permission_mode: Option<String>,
+    /// Extra `claude` arguments, e.g. ["--add-dir", "~/projects/shared"].
     #[serde(default)]
     pub extra_args: Vec<String>,
+    /// Template for the message used when a ticket returns to this stage with changed inputs.
     pub reentry: Option<String>,
+    /// Template for the message the Request handoff button sends, asking the session to write its outputs.
     pub handoff: Option<String>,
+    /// Action buttons shown on tickets in this column.
     #[serde(default)]
     pub actions: Vec<ActionDef>,
     /// Command run during cleanup in this column's session folder, e.g. removing a worktree.
@@ -188,10 +224,13 @@ pub struct ColumnDef {
 }
 
 /// A user-triggered command button; `command` and `cwd` are minijinja templates.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub struct ActionDef {
+    /// Button label.
     pub label: String,
+    /// Command run through cmd.exe (template); use %USERPROFILE% rather than `~`.
     pub command: String,
+    /// Folder to run it in (template, `~` expanded); defaults to the ticket's session folder.
     pub cwd: Option<String>,
 }
 

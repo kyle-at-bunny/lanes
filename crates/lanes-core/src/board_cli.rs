@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 
 use crate::board::Board;
 use crate::config::BoardConfig;
+use crate::config_schema;
 use crate::jira::{self, JiraLink};
 use crate::paths::LanesHome;
 use crate::ticket::Ticket;
@@ -111,6 +112,14 @@ impl TicketChanges {
 pub enum ConfigAction {
     /// Validate board.toml and the prompt files it references.
     Check,
+    /// Print the JSON Schema for board.toml.
+    Schema {
+        /// Instead, write board.schema.json next to board.toml and point board.toml at it, for editor completion.
+        #[arg(long)]
+        write: bool,
+    },
+    /// Print the configuration reference for this version of Lanes.
+    Docs,
 }
 
 pub fn ticket(home: &LanesHome, action: &TicketAction) -> Result<()> {
@@ -167,7 +176,20 @@ pub fn config(home: &LanesHome, action: &ConfigAction) -> Result<()> {
             }
             bail!("{}", problems.join("\n"))
         }
+        ConfigAction::Schema { write: false } => println!("{}", config_schema::board_schema()),
+        ConfigAction::Schema { write: true } => println!("{}", describe_install(&config_schema::install_schema(home)?)),
+        ConfigAction::Docs => println!("{}", config_schema::CONFIG_DOCS),
     }
+    Ok(())
+}
+
+fn describe_install(install: &config_schema::SchemaInstall) -> String {
+    let directive = if install.directive_added {
+        format!("added `{}` to the top of board.toml", config_schema::SCHEMA_DIRECTIVE)
+    } else {
+        "board.toml already points at a schema".into()
+    };
+    format!("wrote {}; {directive}. Lanes keeps the file up to date from now on.", install.schema_path.display())
 }
 
 pub fn check_config(home: &LanesHome) -> Vec<String> {

@@ -66,9 +66,8 @@ impl PromptBuilder<'_> {
     }
 
     pub fn handoff(&self) -> Result<String> {
-        let template = self.column.handoff.as_deref().unwrap_or(
-            "Please wrap up this stage now: write every stage output listed in your instructions, then tell me they are ready.",
-        );
+        let template =
+            self.column.handoff.as_deref().unwrap_or("Please wrap up this stage now: write every stage output listed in your instructions, then tell me they are ready.");
         self.render(template, None, &[])
     }
 

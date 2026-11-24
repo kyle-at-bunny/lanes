@@ -8,6 +8,7 @@ Guidance for AI coding agents (and humans) working on Lanes. Read [README.md](RE
 cargo build -p lanes-app                 # debug build: target\debug\lanes.exe (app + CLI)
 cargo test --workspace                   # all unit tests; must pass before any commit
 cargo test -p lanes-core <filter>        # e.g. `cargo test -p lanes-core jira`
+cargo fmt; cargo clippy --workspace --all-targets -- -D warnings   # CI fails on either
 .\target\debug\lanes.exe --home C:\temp\lanes-dev   # run against a throwaway board, never ~/.lanes
 ```
 
@@ -19,9 +20,9 @@ cargo test -p lanes-core <filter>        # e.g. `cargo test -p lanes-core jira`
 
 | Path | Contents |
 | --- | --- |
-| `crates/lanes-core/src` | All non-UI behaviour, unit-tested: `config`, `ticket`, `artifacts`, `prompt`, `session` (launch/resume), `state` (hooks/status line), `actions`, `timeline`, `transcript`, `cleanup`, `jira`, `assistant`, `cli` + `board_cli` |
+| `crates/lanes-core/src` | All non-UI behaviour, unit-tested: `config`, `ticket`, `artifacts`, `prompt`, `session` (launch/resume), `state` (hooks/status line), `actions`, `timeline`, `transcript`, `cleanup`, `jira`, `assistant`, `config_schema` (`lanes config schema/docs`), `ui_prefs`, `cli` + `board_cli` |
 | `crates/lanes-core/assets` | Starter `board.toml` and default prompts, embedded with `include_str!` and written on first run |
-| `crates/lanes-app/src` | GPUI app. `board_view.rs` is the main view; its child modules in `board_view/` hold feature areas: `archive`, `assistant`, `jira_import`, `lifecycle` (tray, quit) |
+| `crates/lanes-app/src` | GPUI app. `board_view.rs` is the main view; its child modules in `board_view/` hold feature areas, e.g. `archive`, `artifacts`, `assistant`, `description`, `jira_import`, `lifecycle` (tray, quit), `split` (panel divider) |
 | `crates/lanes-app/src/{pty,terminal_view,keys,palette}.rs` | Embedded terminal: ConPTY process, grid rendering, key encoding, colours |
 | `docs/` | User and architecture docs; `docs/images/` holds README screenshots |
 
@@ -77,6 +78,7 @@ Screenshots for docs must use demo data only: no real paths, usernames, tickets 
 
 ## Commits and PRs
 
-- **Before committing:** run `cargo test --workspace` and a warning-free build.
+- **Before committing:** run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` and a warning-free build.
+- **Releases:** push a `v<version>` tag matching `Cargo.toml`; `.github/workflows/release.yml` builds and attaches `lanes.exe`.
 - **Keep the docs in step.** Update `README.md` and `docs/` in the same change as the feature.
 - **Never commit** boards, `state/` files, tokens, or anything from a real `~/.lanes`.

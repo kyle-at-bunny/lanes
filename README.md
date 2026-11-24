@@ -36,7 +36,8 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
-- **Jira import.** Turn issue keys, or your open issues, into tickets. The issue link is shown on the ticket and passed to Claude. No API token is needed if the board assistant has Jira tools (e.g. an Atlassian MCP server).
+- **Jira import.** Turn issue keys, or your open issues, into tickets. The issue key appears as a link on the board card, the ticket panel links to the issue, and the link is passed to Claude. No API token is needed if the board assistant has Jira tools (e.g. an Atlassian MCP server).
+- **Editable tickets.** The ticket panel shows the full description, scrolling when it's long, with **Edit description** to change it in place.
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
 - **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".
@@ -66,7 +67,9 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
   - [Rust](https://rustup.rs) (stable, MSVC toolchain);
   - the Visual Studio C++ build tools with a Windows 10/11 SDK (the "Desktop development with C++" workload).
 
-### Build and run
+### Download or build
+
+Download `lanes.exe` from the [latest release](https://github.com/kyle-at-bunny/lanes/releases/latest) and run it, or build it yourself:
 
 ```powershell
 git clone https://github.com/kyle-at-bunny/lanes.git
@@ -124,6 +127,8 @@ See [docs/configuration.md](docs/configuration.md) for every option, including:
 - action buttons and cleanup commands;
 - Jira, themes and terminal settings.
 
+Run `lanes config schema --write` once for completion and validation in editors that read `#:schema` (such as VS Code with Even Better TOML). New boards get it automatically, and `lanes config docs` prints the reference for your installed version.
+
 ## Board assistant
 
 Click **Assistant** to open a Claude session that runs in your board folder and knows how Lanes works. Ask it things like:
@@ -156,9 +161,9 @@ Lanes never deletes Claude Code's own data. Claude Code keeps every conversation
 | **Quit** | In the top bar or tray menu. Asks first only if Claude is mid-turn in a session; idle or waiting sessions are just stopped. Either way, sessions can be resumed later. |
 | **Ctrl+Shift+C** / mouse selection | Copy from the terminal |
 | **Ctrl+V** | Paste text. When the clipboard has no text (an image, say), it passes through to Claude. |
-| **Shift+PgUp / PgDn**, wheel | Scrollback |
+| **Shift+PgUp / PgDn**, wheel | Scrollback. In full-screen apps such as Claude Code, the wheel sends PgUp / PgDn to the app. |
 | **Theme button** | Cycles Auto (follows Windows) → Light → Dark |
-| **Panel divider** | Drag the edge between the board and the ticket/assistant panel to resize it. The width is remembered (in `~/.lanes/ui.toml`). |
+| **Panel divider** | Drag the edge between the board and the ticket/assistant panel to resize it, or double-click it to reset to 50%. **Wider** / **Narrower** in the panel header switches between a 70% and a 35% panel. The width is remembered (in `~/.lanes/ui.toml`). |
 
 ## Platform support
 

@@ -100,13 +100,15 @@ impl LanesApp {
                             .tooltip("Drop this conversation and start the assistant fresh")
                             .on_click(cx.listener(|this, _, _, cx| this.request_assistant_reset(cx))),
                     )
-                    .child(Button::new("assistant-hide").label("Hide").ghost().xsmall().on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_assistant(window, cx)
-                    }))),
+                    .child(self.panel_width_button(cx))
+                    .child(Button::new("assistant-hide").label("Hide").ghost().xsmall().on_click(cx.listener(|this, _, window, cx| this.toggle_assistant(window, cx)))),
             )
-            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                "Ask it to create, move or edit tickets, add or change columns, or rewrite a column's prompt. Board edits reload automatically.",
-            ))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child("Ask it to create, move or edit tickets, add or change columns, or rewrite a column's prompt. Board edits reload automatically."),
+            )
             .when_some(self.render_assistant_reset_confirm(cx), |this, confirm| this.child(confirm));
         let body = match (&self.assistant, exited) {
             (Some(terminal), false) => div().flex_1().min_h_0().p_1().child(terminal.clone()).into_any_element(),
@@ -121,11 +123,6 @@ impl LanesApp {
                 })))
                 .into_any_element(),
         };
-        v_flex()
-            .size_full()
-            .border_l_1()
-            .border_color(theme.border)
-            .child(header)
-            .child(body)
+        v_flex().size_full().border_l_1().border_color(theme.border).child(header).child(body)
     }
 }

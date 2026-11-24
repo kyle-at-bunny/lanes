@@ -20,10 +20,11 @@ pub fn encode_key(key: &str, key_char: Option<&str>, mods: Mods, app_cursor: boo
     if let Some(bytes) = encode_named(key, mods, app_cursor) {
         return Some(bytes);
     }
-    if mods.ctrl && !mods.shift {
-        if let Some(byte) = control_byte(key) {
-            return Some(with_alt(mods, vec![byte]));
-        }
+    if mods.ctrl
+        && !mods.shift
+        && let Some(byte) = control_byte(key)
+    {
+        return Some(with_alt(mods, vec![byte]));
     }
     let text = key_char.filter(|c| !c.is_empty()).or_else(|| (key.chars().count() == 1).then_some(key))?;
     Some(with_alt(mods, text.as_bytes().to_vec()))

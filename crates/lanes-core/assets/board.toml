@@ -1,3 +1,4 @@
+#:schema ./board.schema.json
 # Lanes board configuration. Edit freely; the app reloads it on save.
 # A column with a `cwd` gets one interactive Claude session per ticket.
 # Columns without a `cwd` (backlog, done) are plain holding lanes.

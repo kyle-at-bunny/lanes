@@ -40,11 +40,7 @@ fn template_for<'a>(ticket: &'a Ticket, column: &'a ColumnDef) -> Option<(&'a st
     if !column.has_session() {
         return None;
     }
-    let overrides = [
-        (ticket.column_cwd.get(&column.id), CwdSource::TicketColumn),
-        (ticket.cwd.as_ref(), CwdSource::Ticket),
-        (column.cwd.as_ref(), CwdSource::Column),
-    ];
+    let overrides = [(ticket.column_cwd.get(&column.id), CwdSource::TicketColumn), (ticket.cwd.as_ref(), CwdSource::Ticket), (column.cwd.as_ref(), CwdSource::Column)];
     overrides.into_iter().find_map(|(value, source)| value.filter(|v| !v.trim().is_empty()).map(|v| (v.as_str(), source)))
 }
 
@@ -66,8 +62,8 @@ fn render(template: &str, ticket: &Ticket, column: &ColumnDef) -> Result<String>
 mod tests {
     use super::*;
     use crate::config::BoardConfig;
-    use crate::ticket::TicketStore;
     use crate::paths::LanesHome;
+    use crate::ticket::TicketStore;
 
     #[test]
     fn precedence_is_ticket_column_then_ticket_then_column_template() {

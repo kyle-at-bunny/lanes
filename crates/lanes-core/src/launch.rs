@@ -24,23 +24,20 @@ impl LaunchSpec {
         for key in inherited_session_vars() {
             command.env_remove(key);
         }
-        let status = command
-            .args(&self.args)
-            .current_dir(&self.cwd)
-            .envs(self.env.iter().map(|(k, v)| (k, v)))
-            .status()
-            .with_context(|| format!("starting {}", self.program))?;
+        let status =
+            command.args(&self.args).current_dir(&self.cwd).envs(self.env.iter().map(|(k, v)| (k, v))).status().with_context(|| format!("starting {}", self.program))?;
         Ok(status.code().unwrap_or(1))
     }
 
     /// A Windows Terminal invocation that opens a tab running `lanes launch <session>`.
     pub fn external_terminal_command(&self, home: &LanesHome, lanes_exe: &Path) -> Command {
         let mut command = Command::new("wt.exe");
-        command
-            .args(["-w", "0", "new-tab", "--title", &self.title.replace(';', ","), "-d"])
-            .arg(&self.cwd)
-            .arg(lanes_exe)
-            .args(["--home", &portable(home.root()), "launch", &self.session_id.to_string()]);
+        command.args(["-w", "0", "new-tab", "--title", &self.title.replace(';', ","), "-d"]).arg(&self.cwd).arg(lanes_exe).args([
+            "--home",
+            &portable(home.root()),
+            "launch",
+            &self.session_id.to_string(),
+        ]);
         command
     }
 }

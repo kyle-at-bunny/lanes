@@ -31,7 +31,7 @@ Run against a throwaway board so you don't touch your real one:
 - **Keep logic in `lanes-core`** with tests; keep `lanes-app` to rendering and wiring.
 - **Structure code readably.** Entry points read as a short sequence of well-named calls, and each function can be understood on its own.
 - **Comments** are one line, and only when the *why* isn't obvious from the code.
-- **Before opening a PR,** run `cargo test --workspace` and make sure `cargo build` has no warnings.
+- **Before opening a PR,** run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`. CI runs all three.
 - **For UI changes,** include a screenshot in the PR description.
 
 ## Reporting bugs
@@ -43,3 +43,7 @@ Please include:
 - the relevant part of your `board.toml` if config is involved.
 
 Never paste API tokens.
+
+## Releasing
+
+Bump `version` in the root `Cargo.toml`, commit, then push a matching tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`). The release workflow runs the tests, builds `lanes.exe` and attaches it to a new GitHub release with generated notes. It fails if the tag doesn't match the version.

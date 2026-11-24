@@ -5,6 +5,7 @@ A Lanes board is a folder, `~/.lanes` by default. Use `lanes --home <dir>` or se
 ```
 ~/.lanes/
   board.toml              # columns, artifacts, actions, settings (this document)
+  board.schema.json       # JSON Schema for board.toml, for editor completion (managed by Lanes)
   prompts/                # column prompt templates, plus assistant.md
   tickets/<ID>/           # ticket.toml, artifacts/, artifacts.toml, events.jsonl, sessions/
   tickets/_archive/<ID>/  # finished tickets
@@ -12,7 +13,7 @@ A Lanes board is a folder, `~/.lanes` by default. Use `lanes --home <dir>` or se
   assistant.toml          # the board assistant's session id
 ```
 
-Lanes reloads `board.toml` automatically when it changes. If the new file is invalid, the error is shown and the previous config stays active. Run `lanes config check` to validate the file from a terminal.
+Lanes reloads `board.toml` automatically when it changes. If the new file is invalid, the error is shown and the previous config stays active. Run `lanes config check` to validate the file from a terminal, `lanes config schema --write` for completion in your editor (see [CLI](cli.md)), and `lanes config docs` to print this reference.
 
 - [`[defaults]`](#defaults)
 - [`[artifacts.<name>]`](#artifacts)

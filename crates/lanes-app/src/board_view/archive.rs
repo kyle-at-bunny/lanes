@@ -96,9 +96,13 @@ impl LanesApp {
                 .items_start()
                 .bg(cx.theme().warning.opacity(0.15))
                 .child(v_flex().flex_1().min_w_0().gap_0p5().text_sm().children(describe_plan(plan)).children(open_prs))
-                .child(Button::new("confirm-cleanup").label("Finish & clean up").warning().small().on_click(cx.listener(|this, _, window, cx| {
-                    this.confirm_cleanup(window, cx)
-                })))
+                .child(
+                    Button::new("confirm-cleanup")
+                        .label("Finish & clean up")
+                        .warning()
+                        .small()
+                        .on_click(cx.listener(|this, _, window, cx| this.confirm_cleanup(window, cx))),
+                )
                 .child(Button::new("cancel-cleanup").label("Cancel").ghost().small().on_click(cx.listener(|this, _, _, cx| {
                     this.cleanup_confirm = None;
                     cx.notify();
@@ -123,14 +127,20 @@ impl LanesApp {
                     .child(div().w(px(90.)).flex_none().text_xs().text_color(theme.muted_foreground).child(ticket.id.clone()))
                     .child(div().flex_1().min_w_0().text_sm().truncate().child(ticket.title.clone()))
                     .child(div().flex_none().text_xs().text_color(theme.muted_foreground).child(plural(ticket.sessions.len(), "stage session", "stage sessions")))
-                    .child(Button::new(SharedString::from(format!("restore-{}", ticket.id))).label("Restore").outline().xsmall().on_click(cx.listener(
-                        move |this, _, window, cx| this.restore_ticket(&id, window, cx),
-                    )))
+                    .child(
+                        Button::new(SharedString::from(format!("restore-{}", ticket.id)))
+                            .label("Restore")
+                            .outline()
+                            .xsmall()
+                            .on_click(cx.listener(move |this, _, window, cx| this.restore_ticket(&id, window, cx))),
+                    )
                     .child({
                         let id = ticket.id.clone();
-                        Button::new(SharedString::from(format!("delete-{}", ticket.id))).label("Delete").ghost().xsmall().on_click(cx.listener(
-                            move |this, _, _, cx| this.request_delete_ticket(&id, cx),
-                        ))
+                        Button::new(SharedString::from(format!("delete-{}", ticket.id)))
+                            .label("Delete")
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(move |this, _, _, cx| this.request_delete_ticket(&id, cx)))
                     })
                     .into_any_element()
             })
@@ -145,7 +155,9 @@ impl LanesApp {
             .gap_2()
             .overflow_y_scroll()
             .child(div().font_weight(FontWeight::SEMIBOLD).child("Archived tickets"))
-            .when(empty, |this| this.child(div().text_sm().text_color(theme.muted_foreground).child("Nothing archived yet. Finished tickets land here after \"Finish & clean up\".")))
+            .when(empty, |this| {
+                this.child(div().text_sm().text_color(theme.muted_foreground).child("Nothing archived yet. Finished tickets land here after \"Finish & clean up\"."))
+            })
             .children(rows)
     }
 }

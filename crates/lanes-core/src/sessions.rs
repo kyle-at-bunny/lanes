@@ -14,7 +14,11 @@ const DEFAULT_RETENTION_DAYS: u64 = 30;
 /// Who a Claude session created by Lanes belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Owner {
-    Ticket { ticket_id: String, column: String, archived: bool },
+    Ticket {
+        ticket_id: String,
+        column: String,
+        archived: bool,
+    },
     Assistant,
     /// Lanes launched it, but no ticket or the assistant links to it any more.
     Unlinked,
@@ -47,7 +51,7 @@ pub fn inventory(home: &LanesHome) -> Result<Vec<SessionInfo>> {
     for session in &mut sessions {
         enrich(home, &states, session);
     }
-    sessions.sort_by(|a, b| b.last_active.cmp(&a.last_active));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.last_active));
     Ok(sessions)
 }
 
@@ -122,10 +126,7 @@ fn linked_sessions(home: &LanesHome) -> Result<Vec<SessionInfo>> {
 /// Session ids from the per-session settings files Lanes writes for every launch.
 fn state_session_ids(home: &LanesHome) -> Vec<Uuid> {
     let Ok(entries) = std::fs::read_dir(home.state_dir()) else { return Vec::new() };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".settings.json").and_then(|id| id.parse().ok()))
-        .collect()
+    entries.filter_map(Result::ok).filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".settings.json").and_then(|id| id.parse().ok())).collect()
 }
 
 fn bare(id: Uuid, owner: Owner, cwd: Option<PathBuf>, last_active: u64) -> SessionInfo {

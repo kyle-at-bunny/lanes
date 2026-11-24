@@ -4231,6 +4231,7 @@ dependencies = [
  "clap",
  "dirs 7.0.0",
  "minijinja",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.11.1",

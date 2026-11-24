@@ -191,10 +191,7 @@ fn artifact(home: &LanesHome, action: &ArtifactAction) -> Result<()> {
 }
 
 fn resolve_ticket(explicit: Option<&str>) -> Result<String> {
-    explicit
-        .map(str::to_string)
-        .or_else(|| std::env::var(TICKET_ENV).ok())
-        .context("no ticket given: pass --ticket or set LANES_TICKET")
+    explicit.map(str::to_string).or_else(|| std::env::var(TICKET_ENV).ok()).context("no ticket given: pass --ticket or set LANES_TICKET")
 }
 
 fn read_stdin() -> Result<String> {

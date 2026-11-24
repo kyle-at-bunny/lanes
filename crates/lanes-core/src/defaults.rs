@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::config_schema;
 use crate::paths::{LanesHome, write_atomic};
 
 pub const STARTER_BOARD: &str = include_str!("../assets/board.toml");
@@ -13,6 +14,7 @@ const STARTER_PROMPTS: &[(&str, &str)] = &[
 
 pub fn write_starter_board(home: &LanesHome) -> Result<()> {
     write_atomic(&home.board_file(), STARTER_BOARD.as_bytes())?;
+    config_schema::install_schema(home)?;
     for (relative, contents) in STARTER_PROMPTS {
         let path = home.resolve(relative);
         if !path.exists() {

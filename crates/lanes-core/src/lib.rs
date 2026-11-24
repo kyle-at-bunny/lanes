@@ -1,12 +1,13 @@
 pub mod actions;
-pub mod assistant;
 pub mod artifact_view;
 pub mod artifacts;
+pub mod assistant;
 pub mod board;
 pub mod board_cli;
 pub mod cleanup;
 pub mod cli;
 pub mod config;
+pub mod config_schema;
 pub mod defaults;
 pub mod jira;
 pub mod launch;

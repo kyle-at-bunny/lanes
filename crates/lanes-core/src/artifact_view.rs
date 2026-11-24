@@ -69,12 +69,8 @@ impl ArtifactPanel {
         let is_output = |name: &str| outputs.iter().any(|o| o.name == name);
         let inputs: Vec<ArtifactRef<'_>> = column.map(ColumnDef::consumed).into_iter().flatten().filter(|a| !is_output(a.name)).collect();
         let is_input = |name: &str| inputs.iter().any(|i| i.name == name);
-        let other: Vec<ArtifactRef<'_>> = config
-            .artifacts
-            .keys()
-            .filter(|name| !is_output(name) && !is_input(name))
-            .map(|name| ArtifactRef { name, optional: true })
-            .collect();
+        let other: Vec<ArtifactRef<'_>> =
+            config.artifacts.keys().filter(|name| !is_output(name) && !is_input(name)).map(|name| ArtifactRef { name, optional: true }).collect();
         Ok(Self {
             inputs: inputs.into_iter().map(entry).collect::<Result<_>>()?,
             outputs: outputs.iter().copied().map(entry).collect::<Result<_>>()?,
@@ -110,15 +106,7 @@ fn load_entry(store: &ArtifactStore<'_>, writes: &BTreeMap<String, Provenance>, 
         (Some(_), Some(path)) => newer_file_edit(path, recorded),
         (Some(_), None) => recorded,
     };
-    Ok(ArtifactEntry {
-        name: artifact.name.to_string(),
-        kind: def.kind,
-        description: def.description.clone(),
-        required: !artifact.optional,
-        content,
-        path,
-        provenance,
-    })
+    Ok(ArtifactEntry { name: artifact.name.to_string(), kind: def.kind, description: def.description.clone(), required: !artifact.optional, content, path, provenance })
 }
 
 /// A file edited outside any session (e.g. in an editor) is newer than its last recorded write and has no known author.
@@ -314,7 +302,10 @@ produces = ["branch"]
     fn parses_branch_rows_and_keeps_other_lines_as_text() {
         let content = "C:\\repos\\app | feat/x | https://github.com/o/app/pull/7\n~/repos/lib | main | no PR\nsee notes | x | y";
         let lines = parse_lines(content);
-        assert_eq!(lines[0], ContentLine::Branch(BranchRow { repo: "C:\\repos\\app".into(), branch: "feat/x".into(), pr: Some("https://github.com/o/app/pull/7".into()) }));
+        assert_eq!(
+            lines[0],
+            ContentLine::Branch(BranchRow { repo: "C:\\repos\\app".into(), branch: "feat/x".into(), pr: Some("https://github.com/o/app/pull/7".into()) })
+        );
         assert_eq!(lines[1], ContentLine::Branch(BranchRow { repo: "~/repos/lib".into(), branch: "main".into(), pr: None }));
         assert_eq!(lines[2], ContentLine::Text("see notes | x | y".into()));
         assert_eq!(parse_lines("D:/a | two words | no PR")[0], ContentLine::Text("D:/a | two words | no PR".into()));

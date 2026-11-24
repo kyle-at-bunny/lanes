@@ -33,11 +33,7 @@ pub fn prepare(home: &LanesHome, config: &BoardConfig, ticket: &Ticket, action: 
         Some(column) => workdir::resolve(ticket, column)?,
         None => None,
     };
-    let default_cwd = ticket
-        .session(&ticket.column)
-        .map(|record| record.cwd.clone())
-        .or(resolved)
-        .unwrap_or_else(|| home.root().to_path_buf());
+    let default_cwd = ticket.session(&ticket.column).map(|record| record.cwd.clone()).or(resolved).unwrap_or_else(|| home.root().to_path_buf());
     let env = Environment::new();
     let ctx = context! {
         ticket => context! {
@@ -73,10 +69,7 @@ fn artifact_values(home: &LanesHome, config: &BoardConfig, ticket_id: &str) -> R
 }
 
 pub fn run(action: &PreparedAction) -> Result<ActionOutcome> {
-    let output = shell(&action.command)
-        .current_dir(&action.cwd)
-        .output()
-        .with_context(|| format!("running '{}' in {}", action.command, action.cwd.display()))?;
+    let output = shell(&action.command).current_dir(&action.cwd).output().with_context(|| format!("running '{}' in {}", action.command, action.cwd.display()))?;
     let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     let lines: Vec<&str> = combined.lines().filter(|l| !l.trim().is_empty()).collect();
     let tail = lines[lines.len().saturating_sub(OUTPUT_TAIL_LINES)..].join("\n");

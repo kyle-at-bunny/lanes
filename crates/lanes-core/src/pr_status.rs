@@ -84,10 +84,8 @@ pub fn pr_urls(home: &LanesHome, config: &BoardConfig, ticket_id: &str) -> Vec<S
 
 /// Asks the GitHub CLI for the pull request's state and check results.
 pub fn fetch(url: &str) -> Result<PrStatus> {
-    let output = gh()
-        .args(["pr", "view", url, "--json", "number,state,isDraft,statusCheckRollup"])
-        .output()
-        .context("running gh (is the GitHub CLI installed and on PATH?)")?;
+    let output =
+        gh().args(["pr", "view", url, "--json", "number,state,isDraft,statusCheckRollup"]).output().context("running gh (is the GitHub CLI installed and on PATH?)")?;
     if !output.status.success() {
         bail!("gh pr view {url}: {}", String::from_utf8_lossy(&output.stderr).trim());
     }
@@ -271,7 +269,9 @@ mod tests {
         assert_eq!((merged.state, merged.checks), (PrState::Merged, Checks::None));
         let draft = parse(json!({"number": 8, "state": "OPEN", "isDraft": true, "statusCheckRollup": [run("COMPLETED", "SUCCESS"), run("IN_PROGRESS", "")]}));
         assert_eq!((draft.state, draft.checks), (PrState::Draft, Checks::Pending));
-        let failing = parse(json!({"number": 9, "state": "OPEN", "isDraft": false, "statusCheckRollup": [run("IN_PROGRESS", ""), {"__typename": "StatusContext", "state": "FAILURE"}]}));
+        let failing = parse(
+            json!({"number": 9, "state": "OPEN", "isDraft": false, "statusCheckRollup": [run("IN_PROGRESS", ""), {"__typename": "StatusContext", "state": "FAILURE"}]}),
+        );
         assert_eq!(failing.checks, Checks::Failing);
         let passing = parse(json!({"number": 10, "state": "OPEN", "statusCheckRollup": [run("COMPLETED", "SKIPPED"), {"state": "SUCCESS"}]}));
         assert_eq!((passing.checks, passing.label().as_str()), (Checks::Passing, "open · checks passing"));

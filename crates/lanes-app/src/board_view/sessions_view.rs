@@ -141,9 +141,13 @@ impl LanesApp {
                 .bg(cx.theme().warning.opacity(0.15))
                 .text_xs()
                 .child(div().flex_1().min_w_0().child("Reset the assistant? Its current conversation is stopped and dropped from Lanes; the next one starts fresh."))
-                .child(Button::new("assistant-reset-confirm").label("Reset").warning().xsmall().on_click(cx.listener(|this, _, window, cx| {
-                    this.confirm_assistant_reset(window, cx)
-                })))
+                .child(
+                    Button::new("assistant-reset-confirm")
+                        .label("Reset")
+                        .warning()
+                        .xsmall()
+                        .on_click(cx.listener(|this, _, window, cx| this.confirm_assistant_reset(window, cx))),
+                )
                 .child(Button::new("assistant-reset-cancel").label("Cancel").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                     this.assistant_reset_confirm = false;
                     cx.notify();
@@ -223,19 +227,32 @@ impl LanesApp {
             .text_xs()
             .child(div().w(px(220.)).flex_none().font_weight(FontWeight::SEMIBOLD).child(owner))
             .child(state)
-            .child(div().flex_1().min_w(px(160.)).truncate().text_color(theme.muted_foreground).child(session.cwd.as_ref().map(|p| p.display().to_string()).unwrap_or_default()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(160.))
+                    .truncate()
+                    .text_color(theme.muted_foreground)
+                    .child(session.cwd.as_ref().map(|p| p.display().to_string()).unwrap_or_default()),
+            )
             .child(div().w(px(80.)).flex_none().text_color(theme.muted_foreground).child(ago))
             .child(div().w(px(90.)).flex_none().text_color(theme.muted_foreground).child(size))
             .when(running, |this| {
-                this.child(Button::new(SharedString::from(format!("stop-{}", session.id))).label("Stop").ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
-                    this.stop_session(stop_id, cx);
-                    this.reload_sessions(window, cx);
-                    cx.notify();
-                })))
+                this.child(Button::new(SharedString::from(format!("stop-{}", session.id))).label("Stop").ghost().xsmall().on_click(cx.listener(
+                    move |this, _, window, cx| {
+                        this.stop_session(stop_id, cx);
+                        this.reload_sessions(window, cx);
+                        cx.notify();
+                    },
+                )))
             })
-            .child(Button::new(SharedString::from(format!("forget-{}", session.id))).label("Forget").outline().xsmall().on_click(cx.listener(
-                move |this, _, window, cx| this.forget_sessions(vec![forget_id], window, cx),
-            )))
+            .child(
+                Button::new(SharedString::from(format!("forget-{}", session.id)))
+                    .label("Forget")
+                    .outline()
+                    .xsmall()
+                    .on_click(cx.listener(move |this, _, window, cx| this.forget_sessions(vec![forget_id], window, cx))),
+            )
             .into_any_element()
     }
 }

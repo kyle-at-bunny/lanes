@@ -122,9 +122,9 @@ pub fn link_from(input: &str, site: Option<&str>) -> Result<JiraLink> {
     let url = if input.starts_with("http://") || input.starts_with("https://") {
         input.split(['?', '#']).next().unwrap_or(input).trim_end_matches('/').to_string()
     } else {
-        let site = site.filter(|s| !s.trim().is_empty()).with_context(|| {
-            format!("'{key}' is a bare key: pass the full browse URL, or set site in the [jira] section of board.toml")
-        })?;
+        let site = site
+            .filter(|s| !s.trim().is_empty())
+            .with_context(|| format!("'{key}' is a bare key: pass the full browse URL, or set site in the [jira] section of board.toml"))?;
         format!("{}/browse/{key}", site.trim_end_matches('/'))
     };
     Ok(JiraLink { key, url })
@@ -293,7 +293,8 @@ mod tests {
                 seen.push(format!("{} {auth} {}", line.trim(), String::from_utf8_lossy(&body_in)));
                 let payload = body.to_string();
                 let mut stream = stream;
-                write!(stream, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len()).unwrap();
+                write!(stream, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len())
+                    .unwrap();
             }
             seen
         });
@@ -312,7 +313,16 @@ mod tests {
         let jira = client(&site);
 
         let fetched = jira.issue("PROJ-7").unwrap();
-        assert_eq!(fetched, JiraIssue { key: "PROJ-7".into(), summary: "Fix login".into(), description: "Steps".into(), status: Some("To Do".into()), url: format!("{site}/browse/PROJ-7") });
+        assert_eq!(
+            fetched,
+            JiraIssue {
+                key: "PROJ-7".into(),
+                summary: "Fix login".into(),
+                description: "Steps".into(),
+                status: Some("To Do".into()),
+                url: format!("{site}/browse/PROJ-7")
+            }
+        );
         let mine = jira.my_open_issues("assignee = currentUser()").unwrap();
         assert_eq!(mine.len(), 2);
         assert!(jira.issue("NOPE-1").unwrap_err().to_string().contains("no issue NOPE-1"));

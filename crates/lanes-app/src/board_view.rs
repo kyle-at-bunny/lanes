@@ -15,30 +15,31 @@ use lanes_core::actions::{self, ActionOutcome};
 use lanes_core::artifact_view::display_path;
 use lanes_core::board::Board;
 use lanes_core::cleanup::CleanupPlan;
-use lanes_core::timeline::{self, EventKind};
-use lanes_core::transcript::{self, Speaker, TranscriptEntry};
 use lanes_core::cli::format_duration;
 use lanes_core::config::{ColumnDef, TerminalMode, ThemeSetting};
 use lanes_core::paths::now_unix;
 use lanes_core::session::LaunchSpec;
 use lanes_core::state::{AgentStatus, Limit};
 use lanes_core::ticket::Ticket;
+use lanes_core::timeline::{self, EventKind};
+use lanes_core::transcript::{self, Speaker, TranscriptEntry};
 use uuid::Uuid;
 
 mod archive;
 mod artifacts;
 mod assistant;
+mod description;
 mod folders;
-mod sessions_view;
-mod split;
 mod jira_import;
 mod lifecycle;
 mod pr_status;
+mod sessions_view;
+mod split;
 
 use crate::palette::TerminalThemeChoice;
-use crate::tray::Tray;
 use crate::pty::{GridSize, PtySession};
 use crate::terminal_view::TerminalView;
+use crate::tray::Tray;
 
 #[derive(Clone)]
 struct DraggedTicket {
@@ -127,6 +128,8 @@ pub struct LanesApp {
     show_archive: bool,
     archived: Vec<Ticket>,
     jira_form: Option<jira_import::JiraForm>,
+    /// Ticket files that failed to load on the last reload, so each problem is shown once rather than every tick.
+    unreadable_tickets: Vec<String>,
     assistant: Option<Entity<TerminalView>>,
     show_assistant: bool,
     config_mtime: Option<std::time::SystemTime>,
@@ -138,6 +141,7 @@ pub struct LanesApp {
     split: Entity<gpui_kit::component::resizable::ResizableState>,
     ui_prefs: lanes_core::ui_prefs::UiPrefs,
     artifact_edit: Option<artifacts::ArtifactEdit>,
+    description_edit: Option<description::DescriptionEdit>,
     show_other_artifacts: bool,
     prs: pr_status::PrTracker,
     _split_resized: Subscription,
@@ -170,6 +174,7 @@ impl LanesApp {
             show_archive: false,
             archived: Vec::new(),
             jira_form: None,
+            unreadable_tickets: Vec::new(),
             assistant: None,
             show_assistant: false,
             config_mtime: None,
@@ -181,6 +186,7 @@ impl LanesApp {
             split,
             ui_prefs,
             artifact_edit: None,
+            description_edit: None,
             show_other_artifacts: false,
             prs: Default::default(),
             _split_resized: split_resized,
@@ -286,10 +292,20 @@ impl LanesApp {
     }
 
     fn reload_tickets(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.board.tickets.list() {
-            Ok(tickets) => self.tickets = tickets,
+        match self.board.tickets.scan() {
+            Ok(scan) => {
+                self.tickets = scan.tickets;
+                self.report_unreadable_tickets(scan.unreadable, window, cx);
+            }
             Err(err) => self.notify_error(&err, window, cx),
         }
+    }
+
+    fn report_unreadable_tickets(&mut self, unreadable: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
+        for problem in unreadable.iter().filter(|p| !self.unreadable_tickets.contains(p)) {
+            self.notify_error(&anyhow::anyhow!("Skipped a ticket that couldn't be loaded: {problem}"), window, cx);
+        }
+        self.unreadable_tickets = unreadable;
     }
 
     /// Toasts when a session stops working and is waiting on the user.
@@ -312,7 +328,9 @@ impl LanesApp {
     }
 
     fn notify_error(&self, err: &anyhow::Error, window: &mut Window, cx: &mut App) {
-        window.push_notification(Notification::error(format!("{err:#}")), cx);
+        let message = format!("{err:#}");
+        // Deferred because errors raised while the window is still opening come before its notification layer exists.
+        window.defer(cx, move |window, cx| window.push_notification(Notification::error(message), cx));
     }
 
     fn ticket(&self, id: &str) -> Option<&Ticket> {
@@ -436,9 +454,7 @@ impl LanesApp {
         match self.terminals.get(&record.id) {
             Some(terminal) if terminal.read(cx).session.has_exited() => CardSession::Parked,
             Some(_) => CardSession::Live(hook),
-            None if self.board.config.defaults.terminal == TerminalMode::External && hook.is_some_and(|s| s != AgentStatus::Exited) => {
-                CardSession::Live(hook)
-            }
+            None if self.board.config.defaults.terminal == TerminalMode::External && hook.is_some_and(|s| s != AgentStatus::Exited) => CardSession::Live(hook),
             None => CardSession::Parked,
         }
     }
@@ -548,11 +564,7 @@ impl Render for LanesApp {
 impl LanesApp {
     fn render_top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let limits = self.board.states.latest_limits();
-        let attention = self
-            .tickets
-            .iter()
-            .filter(|t| matches!(self.card_session(t, cx), CardSession::Live(Some(AgentStatus::NeedsInput))))
-            .count();
+        let attention = self.tickets.iter().filter(|t| matches!(self.card_session(t, cx), CardSession::Live(Some(AgentStatus::NeedsInput)))).count();
         h_flex()
             .flex_wrap()
             .px_3()
@@ -628,9 +640,13 @@ impl LanesApp {
                 .gap_3()
                 .bg(cx.theme().warning.opacity(0.15))
                 .child(div().flex_1().min_w_0().child(format!("{} has no {} yet. Move it anyway?", pending.ticket_id, pending.missing.join(", "))))
-                .child(Button::new("move-anyway").label("Move anyway").warning().small().on_click(cx.listener(move |this, _, window, cx| {
-                    this.move_ticket(&ticket_id, &to, window, cx)
-                })))
+                .child(
+                    Button::new("move-anyway")
+                        .label("Move anyway")
+                        .warning()
+                        .small()
+                        .on_click(cx.listener(move |this, _, window, cx| this.move_ticket(&ticket_id, &to, window, cx))),
+                )
                 .child(Button::new("cancel-move").label("Cancel").ghost().small().on_click(cx.listener(|this, _, _, cx| {
                     this.pending_move = None;
                     cx.notify();
@@ -640,16 +656,7 @@ impl LanesApp {
 
     fn render_board(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let columns: Vec<_> = self.board.config.columns.iter().map(|c| self.render_column(c, window, cx).into_any_element()).collect();
-        h_flex()
-            .id("board")
-            .flex_1()
-            .min_w(px(BOARD_MIN_WIDTH))
-            .h_full()
-            .p_2()
-            .gap_2()
-            .items_start()
-            .overflow_x_scroll()
-            .children(columns)
+        h_flex().id("board").flex_1().min_w(px(BOARD_MIN_WIDTH)).h_full().p_2().gap_2().items_start().overflow_x_scroll().children(columns)
     }
 
     fn render_column(&self, column: &ColumnDef, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -666,9 +673,7 @@ impl LanesApp {
             .rounded_md()
             .bg(theme.muted.opacity(0.4))
             .drag_over::<DraggedTicket>(|style, _, _, cx| style.bg(cx.theme().accent.opacity(0.3)))
-            .on_drop(cx.listener(move |this, dragged: &DraggedTicket, window, cx| {
-                this.request_move(dragged.id.clone(), column_id.clone(), window, cx)
-            }))
+            .on_drop(cx.listener(move |this, dragged: &DraggedTicket, window, cx| this.request_move(dragged.id.clone(), column_id.clone(), window, cx)))
             .child(
                 h_flex()
                     .justify_between()
@@ -677,8 +682,7 @@ impl LanesApp {
             )
             .when_some(column.cwd.clone(), |this, cwd| this.child(div().text_xs().text_color(theme.muted_foreground).child(cwd)))
             .when(column.id == self.board.config.first_column().id, |this| {
-                this.when_some(self.render_new_ticket_form(window, cx), |this, form| this.child(form))
-                    .when_some(self.render_jira_form(cx), |this, form| this.child(form))
+                this.when_some(self.render_new_ticket_form(window, cx), |this, form| this.child(form)).when_some(self.render_jira_form(cx), |this, form| this.child(form))
             })
             .child(v_flex().id(SharedString::from(format!("cards-{}", column.id))).flex_1().gap_2().overflow_y_scroll().children(cards))
     }
@@ -730,12 +734,7 @@ impl LanesApp {
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| this.select(id.clone(), window, cx)))
             .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { title: dragged.title.clone() }))
-            .child(
-                h_flex()
-                    .justify_between()
-                    .child(div().text_xs().text_color(theme.muted_foreground).child(ticket.id.clone()))
-                    .child(session_tag(&session, cx)),
-            )
+            .child(h_flex().justify_between().child(card_id_label(ticket, cx)).child(session_tag(&session, cx)))
             .child(div().text_sm().child(ticket.title.clone()))
             .child(
                 h_flex()
@@ -746,12 +745,20 @@ impl LanesApp {
                     .when_some(outputs, |this, outputs| this.child(outputs))
                     .when_some(prs, |this, badge| this.child(badge))
                     .child(div().flex_1())
-                    .child(Button::new(SharedString::from(format!("left-{}", ticket.id))).label("‹").ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
-                        this.step_ticket(&left_id, -1, window, cx)
-                    })))
-                    .child(Button::new(SharedString::from(format!("right-{}", ticket.id))).label("›").ghost().xsmall().on_click(cx.listener(move |this, _, window, cx| {
-                        this.step_ticket(&right_id, 1, window, cx)
-                    }))),
+                    .child(
+                        Button::new(SharedString::from(format!("left-{}", ticket.id)))
+                            .label("‹")
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(move |this, _, window, cx| this.step_ticket(&left_id, -1, window, cx))),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("right-{}", ticket.id)))
+                            .label("›")
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(move |this, _, window, cx| this.step_ticket(&right_id, 1, window, cx))),
+                    ),
             )
     }
 
@@ -792,16 +799,23 @@ impl LanesApp {
                             .child(div().flex_1())
                             .when(self.is_last_column(&ticket.column), |this| {
                                 let ticket_id = ticket.id.clone();
-                                this.child(Button::new("finish-ticket").label("Finish & clean up").warning().xsmall().on_click(cx.listener(
-                                    move |this, _, window, cx| this.request_cleanup(&ticket_id, window, cx),
-                                )))
+                                this.child(
+                                    Button::new("finish-ticket")
+                                        .label("Finish & clean up")
+                                        .warning()
+                                        .xsmall()
+                                        .on_click(cx.listener(move |this, _, window, cx| this.request_cleanup(&ticket_id, window, cx))),
+                                )
                             })
                             .child({
                                 let ticket_id = ticket.id.clone();
-                                Button::new("delete-ticket").label("Delete").ghost().xsmall().on_click(cx.listener(move |this, _, _, cx| {
-                                    this.request_delete_ticket(&ticket_id, cx)
-                                }))
+                                Button::new("delete-ticket")
+                                    .label("Delete")
+                                    .ghost()
+                                    .xsmall()
+                                    .on_click(cx.listener(move |this, _, _, cx| this.request_delete_ticket(&ticket_id, cx)))
                             })
+                            .child(self.panel_width_button(cx))
                             .child(Button::new("close-detail").label("Close").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
                                 this.selected = None;
                                 cx.notify();
@@ -820,9 +834,7 @@ impl LanesApp {
                             ),
                         )
                     })
-                    .when(!ticket.description.is_empty(), |this| {
-                        this.child(div().text_xs().text_color(theme.muted_foreground).max_h(px(80.)).overflow_hidden().child(ticket.description.clone()))
-                    })
+                    .child(self.render_description(ticket, cx))
                     .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
                     .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
                     .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
@@ -934,38 +946,39 @@ impl LanesApp {
             }
             Some(loaded) => v_flex()
                 .gap_2()
-                .children(loaded.entries.iter().map(|entry| {
-                    let (label, color) = match entry.speaker {
-                        Speaker::User => ("You", theme.primary),
-                        Speaker::Assistant => ("Claude", theme.success),
-                        Speaker::Tool => ("Tool", theme.muted_foreground),
-                    };
-                    v_flex()
-                        .gap_0p5()
-                        .text_xs()
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_color(color).child(label))
-                        .child(div().when(entry.speaker == Speaker::Tool, |d| d.font_family(theme.mono_font_family.clone())).child(entry.text.clone()))
-                })
-                .collect::<Vec<_>>())
+                .children(
+                    loaded
+                        .entries
+                        .iter()
+                        .map(|entry| {
+                            let (label, color) = match entry.speaker {
+                                Speaker::User => ("You", theme.primary),
+                                Speaker::Assistant => ("Claude", theme.success),
+                                Speaker::Tool => ("Tool", theme.muted_foreground),
+                            };
+                            v_flex()
+                                .gap_0p5()
+                                .text_xs()
+                                .child(div().font_weight(FontWeight::SEMIBOLD).text_color(color).child(label))
+                                .child(div().when(entry.speaker == Speaker::Tool, |d| d.font_family(theme.mono_font_family.clone())).child(entry.text.clone()))
+                        })
+                        .collect::<Vec<_>>(),
+                )
                 .into_any_element(),
         };
         v_flex()
             .flex_1()
             .min_h_0()
-            .child(
-                h_flex()
-                    .gap_1()
-                    .px_3()
-                    .py_1()
-                    .children(pickers)
-                    .child(div().flex_1())
-                    .when_some(loaded.map(|t| t.column_id.clone()), |this, column_id| {
-                        let ticket_id = ticket.id.clone();
-                        this.child(Button::new("refresh-transcript").label("Refresh").ghost().xsmall().on_click(cx.listener(move |this, _, _, cx| {
-                            this.load_transcript(&ticket_id, &column_id, cx)
-                        })))
-                    }),
-            )
+            .child(h_flex().gap_1().px_3().py_1().children(pickers).child(div().flex_1()).when_some(loaded.map(|t| t.column_id.clone()), |this, column_id| {
+                let ticket_id = ticket.id.clone();
+                this.child(
+                    Button::new("refresh-transcript")
+                        .label("Refresh")
+                        .ghost()
+                        .xsmall()
+                        .on_click(cx.listener(move |this, _, _, cx| this.load_transcript(&ticket_id, &column_id, cx))),
+                )
+            }))
             .child(v_flex().id("transcript").flex_1().min_h_0().px_3().pb_3().overflow_y_scroll().child(body))
     }
 
@@ -992,9 +1005,12 @@ impl LanesApp {
                 })))
             })
             .when(terminal.is_some() && !exited, |this| {
-                this.child(Button::new("handoff").label("Request handoff").small().on_click(cx.listener(move |this, _, window, cx| {
-                    this.request_handoff(&handoff_id, window, cx)
-                })))
+                this.child(
+                    Button::new("handoff")
+                        .label("Request handoff")
+                        .small()
+                        .on_click(cx.listener(move |this, _, window, cx| this.request_handoff(&handoff_id, window, cx))),
+                )
             })
             .when_some(session_id, |this, id| {
                 this.child(Button::new("suspend").label("Suspend").ghost().small().on_click(cx.listener(move |this, _, _, cx| this.suspend_session(id, cx))))
@@ -1022,6 +1038,27 @@ impl LanesApp {
             .text_color(cx.theme().muted_foreground)
             .child(div().w_full().min_w_0().text_center().child(message))
     }
+}
+
+/// The ticket id, plus its linked Jira key as a link that opens the issue without selecting the card.
+fn card_id_label(ticket: &Ticket, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let id = div().text_color(theme.muted_foreground).child(ticket.id.clone());
+    let Some(jira) = ticket.jira.clone() else {
+        return id.text_xs().into_any_element();
+    };
+    let link = div()
+        .id(SharedString::from(format!("jira-link-{}", ticket.id)))
+        .text_color(theme.info)
+        .cursor_pointer()
+        .hover(|style| style.underline())
+        .child(jira.key.clone())
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            cx.open_url(&jira.url);
+        });
+    let same_key = ticket.jira.as_ref().is_some_and(|j| j.key.eq_ignore_ascii_case(&ticket.id));
+    h_flex().gap_1().text_xs().when(!same_key, |this| this.child(id)).child(link).into_any_element()
 }
 
 fn session_tag(session: &CardSession, cx: &App) -> AnyElement {

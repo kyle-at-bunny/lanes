@@ -118,11 +118,7 @@ impl SessionLauncher<'_> {
             program: self.config.defaults.claude_path.clone(),
             args,
             cwd,
-            env: vec![
-                (HOME_ENV.into(), self.home.root().to_string_lossy().into_owned()),
-                (TICKET_ENV.into(), ticket.id.clone()),
-                (COLUMN_ENV.into(), column.id.clone()),
-            ],
+            env: vec![(HOME_ENV.into(), self.home.root().to_string_lossy().into_owned()), (TICKET_ENV.into(), ticket.id.clone()), (COLUMN_ENV.into(), column.id.clone())],
             title: format!("{} · {}", ticket.id, column.title()),
             draft: None,
         }

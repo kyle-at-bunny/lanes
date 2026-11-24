@@ -59,11 +59,7 @@ fn cleanup_commands(home: &LanesHome, config: &BoardConfig, ticket: &Ticket) -> 
     let mut commands = Vec::new();
     for column in &config.columns {
         let (Some(command), Some(record)) = (&column.cleanup, ticket.session(&column.id)) else { continue };
-        let action = ActionDef {
-            label: format!("{} cleanup", column.title()),
-            command: command.clone(),
-            cwd: Some(record.cwd.to_string_lossy().into_owned()),
-        };
+        let action = ActionDef { label: format!("{} cleanup", column.title()), command: command.clone(), cwd: Some(record.cwd.to_string_lossy().into_owned()) };
         let mut as_column = ticket.clone();
         as_column.column = column.id.clone();
         commands.push(actions::prepare(home, config, &as_column, &action)?);

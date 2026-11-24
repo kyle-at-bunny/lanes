@@ -73,10 +73,7 @@ pub fn hook_state(event: &Value) -> Option<HookState> {
 pub fn status_snapshot(input: &Value) -> StatusSnapshot {
     let limit = |key: &str| {
         let window = input.get("rate_limits")?.get(key)?;
-        Some(Limit {
-            used_pct: window.get("used_percentage")?.as_f64()?,
-            resets_at: window.get("resets_at").and_then(Value::as_u64),
-        })
+        Some(Limit { used_pct: window.get("used_percentage")?.as_f64()?, resets_at: window.get("resets_at").and_then(Value::as_u64) })
     };
     StatusSnapshot {
         at: now_unix(),
@@ -154,10 +151,7 @@ mod tests {
     fn maps_hook_events_to_states() {
         let status = |v: Value| hook_state(&v).map(|s| s.status);
         assert_eq!(status(json!({"hook_event_name": "UserPromptSubmit"})), Some(AgentStatus::Working));
-        assert_eq!(
-            status(json!({"hook_event_name": "Notification", "notification_type": "permission_prompt"})),
-            Some(AgentStatus::NeedsInput)
-        );
+        assert_eq!(status(json!({"hook_event_name": "Notification", "notification_type": "permission_prompt"})), Some(AgentStatus::NeedsInput));
         assert_eq!(status(json!({"hook_event_name": "Stop"})), Some(AgentStatus::Idle));
         assert_eq!(status(json!({"hook_event_name": "StopFailure", "error": "auth"})), Some(AgentStatus::Idle));
         assert_eq!(status(json!({"hook_event_name": "PreCompact"})), None);

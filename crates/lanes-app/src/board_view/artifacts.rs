@@ -79,9 +79,13 @@ impl LanesApp {
                 .child(div().text_color(theme.muted_foreground).child("Artifacts"))
                 .child(div().child(if summary.is_empty() { "none used in this stage".to_string() } else { summary }))
                 .children(warnings)
-                .child(Button::new("view-artifacts").label("View").ghost().xsmall().on_click(cx.listener(move |this, _, _, cx| {
-                    this.show_tab(&ticket_id, DetailTab::Artifacts, cx)
-                })))
+                .child(
+                    Button::new("view-artifacts")
+                        .label("View")
+                        .ghost()
+                        .xsmall()
+                        .on_click(cx.listener(move |this, _, _, cx| this.show_tab(&ticket_id, DetailTab::Artifacts, cx))),
+                )
                 .into_any_element(),
         )
     }
@@ -122,14 +126,12 @@ impl LanesApp {
             return None;
         }
         let expanded = self.show_other_artifacts;
-        let toggle = Button::new("toggle-other-artifacts")
-            .label(format!("{} Other ({})", if expanded { "▾" } else { "▸" }, entries.len()))
-            .ghost()
-            .xsmall()
-            .on_click(cx.listener(|this, _, _, cx| {
+        let toggle = Button::new("toggle-other-artifacts").label(format!("{} Other ({})", if expanded { "▾" } else { "▸" }, entries.len())).ghost().xsmall().on_click(
+            cx.listener(|this, _, _, cx| {
                 this.show_other_artifacts = !this.show_other_artifacts;
                 cx.notify();
-            }));
+            }),
+        );
         let cards: Vec<_> = match expanded {
             true => entries.iter().map(|entry| self.render_artifact_card(ticket, entry, Role::Other, cx)).collect(),
             false => Vec::new(),
@@ -144,7 +146,9 @@ impl LanesApp {
         let content = match (editing, &entry.content, entry.kind) {
             (Some(edit), _, _) => self.render_artifact_editor(edit, cx).into_any_element(),
             (None, None, _) => div().text_xs().text_color(theme.muted_foreground).child("Not produced yet.").into_any_element(),
-            (None, Some(text), ArtifactType::Text) => render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() }),
+            (None, Some(text), ArtifactType::Text) => {
+                render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() })
+            }
             (None, Some(text), ArtifactType::File) => render_file_content(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() }),
         };
         v_flex()
@@ -224,18 +228,15 @@ impl LanesApp {
     }
 
     fn render_artifact_editor(&self, edit: &ArtifactEdit, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap_1()
-            .child(Textarea::new(&edit.input))
-            .child(
-                h_flex()
-                    .gap_1()
-                    .child(Button::new("save-artifact").label("Save").primary().xsmall().on_click(cx.listener(|this, _, window, cx| this.save_artifact_edit(window, cx))))
-                    .child(Button::new("cancel-artifact").label("Cancel").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
-                        this.artifact_edit = None;
-                        cx.notify();
-                    }))),
-            )
+        v_flex().gap_1().child(Textarea::new(&edit.input)).child(
+            h_flex()
+                .gap_1()
+                .child(Button::new("save-artifact").label("Save").primary().xsmall().on_click(cx.listener(|this, _, window, cx| this.save_artifact_edit(window, cx))))
+                .child(Button::new("cancel-artifact").label("Cancel").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                    this.artifact_edit = None;
+                    cx.notify();
+                }))),
+        )
     }
 }
 
@@ -343,7 +344,12 @@ fn render_file_content(id: &str, content: &str, look: &Look<'_>) -> AnyElement {
 /// A link that opens in the browser, followed by a status chip when it is a pull request.
 fn link_with_status(id: &str, url: &str, look: &Look<'_>) -> Vec<AnyElement> {
     let target = url.to_string();
-    let button = Button::new(SharedString::from(format!("url-{id}"))).label(url.to_string()).link().xsmall().tooltip("Open in browser").on_click(move |_, _, cx| cx.open_url(&target));
+    let button = Button::new(SharedString::from(format!("url-{id}")))
+        .label(url.to_string())
+        .link()
+        .xsmall()
+        .tooltip("Open in browser")
+        .on_click(move |_, _, cx| cx.open_url(&target));
     let mut pieces = vec![button.into_any_element()];
     pieces.extend(pr_chip(url, look.prs, look.theme));
     pieces
