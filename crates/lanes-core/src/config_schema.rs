@@ -79,7 +79,8 @@ mod tests {
         let home = LanesHome::new(dir.path());
         BoardConfig::load_or_init(&home).unwrap();
         assert!(dir.path().join(SCHEMA_FILE).exists(), "new boards get the schema");
-        let without_directive = crate::defaults::STARTER_BOARD.replacen(&format!("{SCHEMA_DIRECTIVE}\n"), "", 1);
+        let (directive, without_directive) = crate::defaults::STARTER_BOARD.split_once('\n').unwrap();
+        assert!(directive.starts_with(SCHEMA_DIRECTIVE));
         std::fs::write(home.board_file(), without_directive).unwrap();
 
         let first = install_schema(&home).unwrap();
