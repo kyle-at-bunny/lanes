@@ -161,6 +161,7 @@ Lanes never deletes Claude Code's own data. Claude Code keeps every conversation
 | **Quit** | In the top bar or tray menu. Asks first only if Claude is mid-turn in a session; idle or waiting sessions are just stopped. Either way, sessions can be resumed later. |
 | **Ctrl+Shift+C** / mouse selection | Copy from the terminal |
 | **Ctrl+V** | Paste text. When the clipboard has no text (an image, say), it passes through to Claude. |
+| **Drop files on the terminal** | Types their paths into Claude's input box, quoted when they contain spaces, as Windows Terminal does. |
 | **Shift+PgUp / PgDn**, wheel | Scrollback. In full-screen apps such as Claude Code, the wheel sends PgUp / PgDn to the app. |
 | **Theme button** | Cycles Auto (follows Windows) → Light → Dark |
 | **Panel divider** | Drag the edge between the board and the ticket/assistant panel to resize it, or double-click it to reset to 50%. **Wider** / **Narrower** in the panel header switches between a 70% and a 35% panel. The width is remembered (in `~/.lanes/ui.toml`). |

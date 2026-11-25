@@ -57,7 +57,7 @@ The app polls these small files once a second to update badges, context meters, 
 
 - **Process:** each session runs in a Windows pseudo-console (ConPTY via `portable-pty`).
 - **Emulation:** output feeds an `alacritty_terminal` grid. A custom GPUI element paints the grid as background quads and shaped text runs, roughly every frame when something changed.
-- **Input:** keystrokes are encoded to xterm sequences, honouring application-cursor mode and bracketed paste.
+- **Input:** keystrokes are encoded to xterm sequences, honouring application-cursor mode and bracketed paste. Files dropped from Explorer are pasted as their paths.
 - **Resizing:** follows the element's size.
 - **When `claude` exits:** the pseudo-console is closed so its reader thread finishes.
 

@@ -9,6 +9,7 @@ pub mod cli;
 pub mod config;
 pub mod config_schema;
 pub mod defaults;
+pub mod dropped_paths;
 pub mod jira;
 pub mod launch;
 pub mod paths;

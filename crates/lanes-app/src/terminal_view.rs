@@ -10,6 +10,7 @@ use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::{Term, TermMode, cell::Flags, viewport_to_point};
 use alacritty_terminal::vte::ansi::{Color, CursorShape};
 use gpui_kit::*;
+use lanes_core::dropped_paths::dropped_paths_text;
 use uuid::Uuid;
 
 use crate::keys::{Mods, bracketed_paste, encode_key};
@@ -112,6 +113,12 @@ impl TerminalView {
         }
     }
 
+    fn on_drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus.focus(window, cx);
+        self.type_text(&dropped_paths_text(paths.paths()));
+        cx.notify();
+    }
+
     fn copy_selection(&mut self, cx: &mut Context<Self>) {
         let text = self.session.term.lock().selection_to_string();
         if let Some(text) = text.filter(|t| !t.is_empty()) {
@@ -209,6 +216,8 @@ impl Render for TerminalView {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_drop(cx.listener(Self::on_drop_paths))
+            .drag_over::<ExternalPaths>(|style, _, _, _| style.opacity(0.8))
             .child(
                 canvas(
                     move |bounds, window, _cx| prepare_frame(&session, &geometry, bounds, palette, window),
