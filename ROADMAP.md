@@ -33,20 +33,53 @@ The closest analogue is Nimbalyst: session cards on a kanban board, but without 
   - Statusline fields Lanes reads must degrade gracefully when they're missing.
 - **Platform statement:** 1.0 is Windows-only by design. macOS is the first post-1.0 goal, not a gate.
 
-## Step zero: measure before building
+## Step zero: what the transcripts say (measured 25 Nov 2026)
 
-Theme A rests on an assumption: that cold resumes and oversized stage sessions are where tokens go. Claude Code's transcripts (`~/.claude/projects/**/*.jsonl`) record input, output, cache read and cache write tokens for every turn. A one-off read-only script over real Lanes sessions can answer that before any feature is built:
-- **Cold resumes:** what share of spend was cache writes on the first turn after a resume?
-- **Session size:** how large do sessions get, by stage?
-- **Rework:** how often do tickets go back to an earlier stage?
+A read-only script went through every Claude Code transcript on the author's machine (`~/.claude/projects`). The data:
+- July 31 to November 25 2026
+- about 17,000 API requests in 49 sessions, 5 of them Lanes stage sessions
+- weighted at API price ratios: uncached input 1, cache write 1.25 (5-minute) or 2 (1-hour), cache read 0.1, output 5
 
-If cold resumes turn out to be small, Theme A shrinks to the ledger (A1) and per-stage defaults (A4).
+| Where spend went | Share |
+| --- | --- |
+| Cache reads: the whole context re-read on every turn | **60–75%** |
+| Output | 8–13% |
+| Warm cache writes and uncached input | 6–10% |
+| Cold rebuilds after a gap of an hour or more | 5–8% |
+| Cold rebuilds after a 5–60 minute gap, or a model change or compaction | 2–3% |
+| Subagents (all their reads, writes and output) | 8–10% |
+
+The range comes from weighting cache reads at 0.1 or 0.05.
+
+**Spend by context size at the time of the request:**
+
+| Context | Share of requests | Share of spend | Cost per request |
+| --- | --- | --- | --- |
+| under 100k | 17% | 6% | 1× |
+| 100–200k | 22% | 12% | 1.4× |
+| 200–400k | 24% | 22% | 2.4× |
+| 400–700k | 23% | 34% | 3.9× |
+| over 700k | 13% | 26% | 5.5× |
+
+Sessions peak at a median of 330k tokens of context (90th percentile 934k). Auto-compaction on 1M-token models only starts at about 967k, so sessions run nearly to the limit.
+
+**What this means:**
+- **Session size is the main cost.** Spend is driven by how big sessions get, not by cold resumes. 60% of it happens on requests with more than 400k of context.
+- **Cold resumes matter less than assumed.** They are real but secondary: 79 cold rebuilds at a median of 300k, about 5–8% of spend.
+- **Fresh sessions per stage are the right instinct.** Lanes' core design already does this. The next step is to keep each stage's session small.
+
+**Caveats:**
+- The data is one person's history over about four months, and mostly not Lanes sessions. The five Lanes sessions show the same pattern; the Dev session peaked at 483k.
+- The weights are API price ratios. How a subscription counts cache reads isn't documented.
+- Costs are compared within a model, not across models.
+
+The script is not checked in. Re-run the same analysis per ticket once the ledger (A1) exists.
 
 ## Theme A: token spend over a ticket's lifetime
 
-This is the most distinctive direction. Lanes is the only tool here that knows a session's whole arc: what stage it's in, how long it has been parked, and what it hands off.
+Lanes is the only tool here that knows a session's whole arc: what stage it's in, how big it has grown, how long it has been parked, and what it hands off. The measurements put **context size** first and cold resumes second.
 
-### A1. Measure first: a per-ticket spend ledger
+### A1. A per-ticket spend ledger
 - **What the status line gives us:** Lanes already parses the status line. It currently keeps only context % and the plan limits, but the same JSON carries:
   - `cost.total_cost_usd`
   - cache read and write token counts
@@ -55,36 +88,45 @@ This is the most distinctive direction. Lanes is the only tool here that knows a
 - **Plan-limit impact:** record the 5-hour and 7-day limit % at session start and end. It's noisy when sessions overlap, but it's the only measure of plan usage a subscriber has.
 - **Exact attribution (optional):** set `OTEL_RESOURCE_ATTRIBUTES=ticket.id=…,stage=…` at launch, so anyone running an OpenTelemetry collector gets exact figures, subagents included.
 
-### A2. Warm vs cold sessions
-Prompt caching dominates cost. A resumed session whose cache has expired re-reads its whole transcript at cache-write price. On subscriptions the main conversation has a 1-hour time to live. Tickets sit in Review overnight, so most resumes in Lanes are cold.
+### A2. Keep stage sessions small (the main lever)
+- **Context limit per column:**
+  - Add a `max_context` key, passed as `--autocompact <tokens>` on every launch. It defaults to about 300k in the starter board instead of Claude Code's ~967k.
+  - Every request above 400k costs roughly 4–5× one under 100k. A limit trades a compaction for that steady cost.
+- **Size nudge:** when a stage session passes a threshold (say 250k), the card and terminal header suggest *Hand off and start fresh*. That action:
+  1. asks the session to write its outputs and a short `stage_summary`
+  2. ends the session
+  3. starts a new session for the same stage, seeded with the brief, the artifacts and the summary
 
-- **Card indicator:** show whether a parked session's cache is warm, with "warm for 12 min" from `prompt_cache.expires_at`.
-- **Choice at resume:** a cold, large session prompts:
-  - *Resume (re-reads ~180k tokens)*, or
-  - *Fresh session seeded with this stage's artifacts and a summary*.
+  This is the same mechanism as "Leave stage" (A3), used within a stage.
+- **Re-injection after compaction:** use a `SessionStart` hook with source `compact` to put the ticket brief and current artifacts back. Compaction keeps only a few recent files and drops path-scoped rules, and the hook makes a lower limit safe.
+- **Output trimming:** ship an optional "trim long tool output" hook, the docs' `PreToolUse` example, as a board setting. Long test and build logs are what inflate a session quickly.
 
-  Lanes' artifact model makes the fresh path cheap. The plain fix is a *stage summary* artifact the session writes before it's parked (A3).
-- **Prompts:** keep per-stage system prompt files byte-identical across launches, because Claude Code ignores a changed `--append-system-prompt` on `--resume` until compaction. Lanes already sends re-entry notes as a message, which is the right approach. Add a test that pins it.
-
-### A3. Leaving a stage while the cache is warm
+### A3. Leaving a stage cleanly
 - **Leave stage action:**
   1. While the cache is still warm, ask the session to write its outputs plus a short `stage_summary`: decisions, open questions, what it would do next.
   2. Then stop the session.
+- **Cheap re-entry:** when the ticket comes back, the stage can start fresh from the summary and the new inputs instead of resuming a 400k transcript.
 
-  This replaces "leave the session open and compact it later", which is the expensive pattern.
-- **After compaction:** use a `SessionStart` hook with source `compact` to re-inject the ticket brief and current artifacts. Compaction keeps only a few recent files and drops path-scoped rules.
+### A4. Warm vs cold resumes (secondary)
+Cold rebuilds were 5–8% of measured spend: worth handling, but not first. A resumed session whose cache has expired re-reads its whole transcript at cache-write price. On a subscription the main conversation's cache lasts an hour.
 
-### A4. Per-stage model, effort and context defaults
+- **Choice at resume:** for a session that is both cold and large, offer:
+  - *Resume (re-reads ~N tokens)*, or
+  - *Fresh session from the stage summary*.
+
+  Lanes can compute the size from the last status snapshot, so this doesn't need the newer `prompt_cache` fields.
+- **Prompts:** keep per-stage system prompt files byte-identical across launches. Claude Code ignores a changed `--append-system-prompt` on `--resume` until compaction. Lanes already sends re-entry notes as a message, which is the right approach; add a test that pins it.
+
+### A5. Per-stage model and effort defaults
 - **Starter board defaults:**
   - Opus with high effort for Plan.
   - Sonnet with medium effort for Dev and Review.
   - Sonnet or Haiku with low effort for QA.
   - Haiku for subagents (`CLAUDE_CODE_SUBAGENT_MODEL`).
-  - Document why: model and effort changes mid-session invalidate the cache, so choose per stage, not per turn.
-- **Per-column settings:** expose `autocompact` (the window, e.g. 200k for Dev) and idle-compaction off for parked sessions. Claude Code runs some work in the background while a session is idle.
-- **Output trimming:** ship an optional "trim long tool output" hook, the docs' `PreToolUse` example, as a board setting.
+- **Why per stage:** model and effort changes mid-session invalidate the cache, so they're chosen per stage, not per turn.
+- **Idle work:** turn idle compaction off for parked sessions. Claude Code otherwise does some work in the background while a session is idle.
 
-### A5. Spend-aware nudges (later)
+### A6. Spend-aware nudges (later)
 - **Over budget:** "This ticket has used 3× the board median" on the card. It's a prompt for a human decision, not a limit.
 - **Re-runs:** flag stage re-entries where most input tokens were spent re-reading, not working.
 
@@ -112,7 +154,6 @@ Every piece of writing on parallel agents agrees that the scarce resource is the
 
 Reviewing is the bottleneck once agents write the code.
 
-- **Diff tab:** branch vs base per ticket, with comments that become the next re-entry note for the Dev session. Every rival has this, so it's the clearest table-stakes gap.
 - **Evidence on exit:** a standard `evidence` artifact for the Dev and QA stages: files touched, tests run and their results, known gaps. "Done" becomes a claim with receipts, and the reviewer starts from it.
 - **Plan drift check:** before Review, compare the diff with `plan.md` and ask the Dev session to update the plan or explain the drift. Stale plans are the top complaint about spec-driven work.
 
@@ -132,28 +173,29 @@ Reviewing is the bottleneck once agents write the code.
 - **Agents moving tickets.** A column option such as `allow_session_moves = ["review"]` would let a Dev session run `lanes ticket move` when its outputs exist. The human still starts every session, so it stays organisational.
 - **Auto-start the next stage** after an agent-initiated move: off by default.
 - **Other agent CLIs** (Codex). Rivals increasingly support several, but Lanes' hooks and status line are Claude-specific, so this is post-1.0.
+- **In-app diff viewer.** Diffs are reviewed in the editor and on GitHub. Lanes links to them rather than rendering them.
 - **Planning critic, bouncer agents, fan-out:** autonomous orchestration. Out of scope.
 
 ## Review of this draft
 
 - **Positioning:** a feature that only reports session state competes with Claude Code itself. Features that use stages, artifacts or the ticket's lifetime don't.
 - **Config, not code:** several items are mostly changes to the starter board and prompts:
-  - per-stage model and effort defaults (A4)
-  - the evidence artifact (C)
+  - a lower default context limit (A2)
+  - the compaction re-injection hook (A2)
   - the stage summary (A3)
-  - the compaction hook (A3)
+  - per-stage model and effort defaults (A5)
+  - the evidence artifact (C)
 
   They're cheap, and can ship early alongside code changes.
-- **Diff tab cost:** a good diff viewer in GPUI is weeks of work. Start with "Open diff in VS Code" plus a comment box that sends review comments to the Dev session as its next re-entry note. Build it in-app only if switching windows proves to be real friction.
 - **Single-user scope:** merge-order hints and WIP limits matter most with many parallel tickets. Merge-order hints are the first candidate to cut. Multi-repo tickets stay, because the package-plus-consumer workflow is real.
 
 ## Suggested sequence
 
 | Release | Focus |
 | --- | --- |
-| 0.2 | Step zero measurement, spend ledger (A1), per-stage defaults and the config-only items above |
-| 0.3 | Warm/cold indicator and resume choice (A2), Leave stage with summary (A3) |
-| 0.4 | Needs-you queue and toast notifications (B), diff via VS Code plus comments to Dev (C) |
+| 0.2 | Per-column context limit and compaction hook (A2), spend ledger (A1), per-stage defaults and the other config-only items above |
+| 0.3 | Size nudge with "Hand off and start fresh" (A2), Leave stage with summary (A3), cold-resume choice (A4) |
+| 0.4 | Needs-you queue and toast notifications (B), evidence artifact and plan drift check (C) |
 | 0.5 | Overlap warnings, multi-repo tickets, Jira write-back if wanted (D, E) |
 | 0.9 | Board versioning and migrations, contract freeze, min Claude Code version check |
 | 1.0 | Three clean releases on 0.9, docs pass, at least one outside user set up from the README |
