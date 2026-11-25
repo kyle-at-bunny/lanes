@@ -112,6 +112,48 @@ Backlog ──► Plan / Arch ──► Dev ──► Review ──► QA ──
 
 See [docs/architecture.md](docs/architecture.md) for the details.
 
+## Your workflow, your columns
+
+Plan → Dev → Review → QA is only the starter board. The columns are whatever you write in `board.toml`, so the board can follow how you already work:
+
+- **Any stages, in any order.** Rename, add, remove or reorder columns, and run as many or as few as you like. A column with a `cwd` gets a Claude session per ticket; one without (like Backlog or Done) is a plain holding lane.
+- **Your own hand-offs.** Define any artifacts you want stages to pass along, e.g. `spec`, `security_notes` or `release_notes`, and say which columns produce and consume them.
+- **Per-stage behaviour.** Each column sets its own prompt, folder, model, effort, permission mode, whether Claude starts straight away, and its own action buttons and cleanup command.
+
+For example, a lighter board for small changes:
+
+```toml
+[artifacts.spec]
+type = "file"
+description = "What to build and how we'll know it works."
+
+[[columns]]
+id = "inbox"
+title = "Inbox"
+
+[[columns]]
+id = "spec"
+title = "Spec"
+cwd = "~/projects/my-app"
+prompt = "prompts/spec.md"
+produces = ["spec"]
+permission_mode = "plan"
+
+[[columns]]
+id = "build"
+title = "Build & ship"
+cwd = "~/worktrees/{{ ticket.id | lower }}"
+prompt = "prompts/build.md"
+consumes = ["spec"]
+model = "sonnet"
+
+[[columns]]
+id = "shipped"
+title = "Shipped"
+```
+
+You can also ask the [board assistant](#board-assistant) to make these changes for you, and the board reloads as soon as `board.toml` is saved.
+
 ## Configuration
 
 Everything lives in `~/.lanes/board.toml` (or `--home <dir>` / `$LANES_HOME`). A column looks like this:
