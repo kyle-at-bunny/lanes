@@ -30,7 +30,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 
 ## Features
 
-- **One session per ticket per stage.** Each column has its own prompt template, working directory, model and permission mode. Sessions resume by ID when a ticket comes back.
+- **One session per ticket per stage.** Each column has its own prompt template, working directory, model and permission mode. Sessions resume by ID when a ticket comes back. **Request handoff** asks a running session to write its stage outputs, and **Suspend** stops it so you can resume it later.
 - **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file or a short piece of text. Each new session gets the ticket brief and its inputs as context and waits for your first message (or starts straight away with `start = "prompt"`). Lanes warns you if you move a ticket on before its outputs exist.
 - **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, clickable PR links and repo folders, and PR state and CI results via `gh` (with a card badge like "2 PRs · 1 failing").
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
@@ -38,6 +38,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
 - **Jira import.** Turn issue keys, or your open issues, into tickets. The issue key appears as a link on the board card, the ticket panel links to the issue, and the link is passed to Claude. No API token is needed if the board assistant has Jira tools (e.g. an Atlassian MCP server).
 - **Editable tickets.** The ticket panel shows the full description, scrolling when it's long, with **Edit description** to change it in place.
+- **Resizable ticket panel.** Drag the divider, or switch between a wide and a narrow panel.
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
 - **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".
@@ -48,28 +49,37 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 
 <table>
   <tr>
-    <td><img src="docs/images/ticket-timeline.png" alt="Ticket panel with the Jira link, artifacts and the timeline of moves and sessions"></td>
-    <td><img src="docs/images/ticket-transcript.png" alt="Ticket panel in light mode reading the Dev stage's Claude transcript"></td>
+    <td><img src="docs/images/ticket-artifacts.png" alt="Ticket panel's Artifacts tab showing the Dev stage's rendered plan input and its optional inputs"></td>
+    <td><img src="docs/images/ticket-timeline.png" alt="Ticket panel with the Jira link, actions and the timeline of moves, sessions and artifact writes"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Ticket panel: artifacts, actions and timeline</sub></td>
-    <td align="center"><sub>Reading a stage's transcript (light theme)</sub></td>
+    <td align="center"><sub>Artifacts tab: a stage's inputs and outputs</sub></td>
+    <td align="center"><sub>Ticket panel: actions and timeline</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/ticket-transcript.png" alt="Ticket panel in light mode reading the Dev stage's Claude transcript"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub>Reading a stage's transcript (light theme)</sub></td>
   </tr>
 </table>
 
 ## Quick start
 
+> **Status: early (0.x).** Lanes is used daily on Windows by its author, but the board format and features may still change between releases. See [ROADMAP.md](ROADMAP.md) for what's planned.
+
 ### Requirements
 
 - **Windows 10 or 11.** Lanes is developed and tested on Windows. macOS and Linux are untested; see [Platform support](#platform-support).
 - **[Claude Code](https://docs.claude.com/en/docs/claude-code)**, installed and logged in. Run `claude`, then `/login`, once in a normal terminal.
+- **Optional:** the [GitHub CLI](https://cli.github.com) (`gh`), logged in, for pull request state and CI results on PR links.
 - **Building from source** additionally needs:
   - [Rust](https://rustup.rs) (stable, MSVC toolchain);
   - the Visual Studio C++ build tools with a Windows 10/11 SDK (the "Desktop development with C++" workload).
 
 ### Download or build
 
-Download `lanes.exe` from the [latest release](https://github.com/kyle-at-bunny/lanes/releases/latest) and run it, or build it yourself:
+Download `lanes.exe` from the [latest release](https://github.com/kyle-at-bunny/lanes/releases/latest) and run it. It isn't code-signed, so Windows SmartScreen may warn the first time; choose **More info → Run anyway**. Or build it yourself:
 
 ```powershell
 git clone https://github.com/kyle-at-bunny/lanes.git
