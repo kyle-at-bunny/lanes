@@ -135,6 +135,7 @@ mod tests {
             effort: None,
             permission_mode: Some("plan"),
             extra_args: &[],
+            max_context: None,
         };
         assert_eq!(OpenCode.launch_args(&request).unwrap(), ["--session", agent_id.as_str(), "--prompt", "# Ticket T-1"]);
     }

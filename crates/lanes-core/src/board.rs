@@ -8,6 +8,8 @@ use crate::config::{ActionDef, BoardConfig};
 use crate::config_schema;
 use crate::paths::LanesHome;
 use crate::session::{LaunchSpec, SessionLauncher};
+use crate::spend::ledger::{self, TicketSpend};
+use crate::spend::{self, SpendMode};
 use crate::state::StateStore;
 use crate::ticket::{Ticket, TicketStore};
 use crate::timeline::{self, EventKind};
@@ -84,13 +86,51 @@ impl Board {
     pub fn prepare_session(&self, ticket_id: &str) -> Result<LaunchSpec> {
         let mut ticket = self.tickets.load(ticket_id)?;
         let column = ticket.column.clone();
+        self.assign_spend_variant(&mut ticket)?;
         let spec = self.launcher().prepare(&mut ticket, &column)?;
+        self.tickets.save(&ticket)?;
+        Ok(spec)
+    }
+
+    /// Replaces the current stage's session with a fresh one seeded from its summary.
+    pub fn start_fresh_session(&self, ticket_id: &str) -> Result<LaunchSpec> {
+        let mut ticket = self.tickets.load(ticket_id)?;
+        let column = ticket.column.clone();
+        let spec = self.launcher().start_fresh(&mut ticket, &column)?;
         self.tickets.save(&ticket)?;
         Ok(spec)
     }
 
     pub fn handoff_message(&self, ticket: &Ticket) -> Result<String> {
         self.launcher().handoff_message(ticket, &ticket.column)
+    }
+
+    pub fn fresh_handoff_message(&self, ticket: &Ticket) -> Result<String> {
+        self.launcher().fresh_handoff_message(ticket, &ticket.column)
+    }
+
+    /// Whether the stage's session has written the summary a fresh session would start from, since `since`.
+    pub fn has_fresh_summary(&self, ticket: &Ticket, since: u64) -> bool {
+        let path = spend::summary_path(&self.home, &ticket.id, &ticket.column);
+        let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        modified.and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).is_some_and(|m| m.as_secs() >= since)
+    }
+
+    pub fn compaction_reminder(&self, ticket_id: &str, column: &str) -> Result<Option<String>> {
+        self.launcher().compaction_reminder(&self.tickets.load(ticket_id)?, column)
+    }
+
+    pub fn ticket_spend(&self, ticket: &Ticket, finished: bool) -> TicketSpend {
+        ledger::ticket_spend(ticket, &self.config, finished, |id| ledger::agent_usage(ticket, id))
+    }
+
+    fn assign_spend_variant(&self, ticket: &mut Ticket) -> Result<()> {
+        if ticket.spend_variant.is_none() && self.config.spend.mode == SpendMode::Ab {
+            let mut others = self.tickets.list()?;
+            others.extend(self.tickets.list_archived()?);
+            self.config.spend.assign_variant(ticket, &others);
+        }
+        Ok(())
     }
 
     fn launcher(&self) -> SessionLauncher<'_> {

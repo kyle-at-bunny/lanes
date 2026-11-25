@@ -44,6 +44,9 @@ pub struct Limit {
 pub struct StatusSnapshot {
     pub at: u64,
     pub context_used_pct: Option<f64>,
+    /// Tokens in the context window on the last request, as Claude Code reports it.
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
     pub model: Option<String>,
     pub five_hour: Option<Limit>,
     pub seven_day: Option<Limit>,

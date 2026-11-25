@@ -19,6 +19,7 @@ pub mod pr_status;
 pub mod prompt;
 pub mod session;
 pub mod sessions;
+pub mod spend;
 pub mod state;
 pub mod ticket;
 pub mod timeline;

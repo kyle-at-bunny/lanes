@@ -61,6 +61,14 @@ Lanes doesn't scrape the terminal. For Claude Code, each session gets a `--setti
 
 The app polls these small files once a second to update badges, context meters, the usage bar, the tray badge and notifications. Because state comes from the agent itself, it works the same in embedded and external-terminal modes. Agents without hooks (OpenCode today) have no live state: their cards show "running".
 
+## Spend
+
+`lanes-core/src/spend` measures and reduces token spend:
+- **Usage** comes from Claude Code's transcripts (`~/.claude/projects/*/<session>.jsonl` plus `<session>/subagents/`). Each API message is counted once, and cache writes, reads and output are weighted by API price ratios.
+- **Ledger:** a ticket's stages add up every session they've had. **Start fresh from summary** retires a session into `retired_sessions` on the ticket rather than dropping it, so its spend still counts.
+- **Lean sessions** get `--autocompact`. `lanes hook` prints the ticket brief on `SessionStart` with `source: "compact"`, which Claude Code adds to the compacted conversation.
+- **A/B:** with `[spend] mode = "ab"`, a ticket's arm is chosen when its first session starts and stored on the ticket.
+
 ## Embedded terminal
 
 - **Process:** each session runs in a pseudo-terminal via `portable-pty` (ConPTY on Windows).

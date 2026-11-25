@@ -52,6 +52,7 @@ pub fn prepare(home: &LanesHome, config: &BoardConfig, lanes_exe: &Path) -> Resu
         effort: None,
         permission_mode: None,
         extra_args: &extra_args,
+        max_context: None,
     };
     let args = agent.launch_args(&request)?;
     write_atomic(&record_file(home), toml::to_string(&record)?.as_bytes())?;

@@ -7,10 +7,12 @@ use serde_json::Value;
 
 use crate::agent::{self, AgentKind};
 use crate::artifacts::ArtifactStore;
+use crate::board::Board;
 use crate::board_cli::{self, ConfigAction, TicketAction};
 use crate::config::BoardConfig;
 use crate::paths::{COLUMN_ENV, LanesHome, TICKET_ENV};
 use crate::session::LaunchSpec;
+use crate::spend;
 use crate::state::StateStore;
 
 #[derive(Debug, Parser)]
@@ -50,6 +52,12 @@ pub enum Command {
     },
     /// Summarise the board: columns, their settings, artifacts and ticket counts.
     Board,
+    /// Show token spend per ticket and stage, and compare the arms of a `[spend] mode = "ab"` test.
+    Spend {
+        /// Only this ticket.
+        #[arg(long)]
+        ticket: Option<String>,
+    },
     /// Validate the board configuration.
     Config {
         #[command(subcommand)]
@@ -103,6 +111,7 @@ pub fn run(cli: &Cli, command: &Command) -> Result<()> {
         Command::Launch { session_id } => std::process::exit(LaunchSpec::load(&home, session_id)?.run_attached()?),
         Command::Ticket { action } => board_cli::ticket(&home, action),
         Command::Board => board_cli::board_summary(&home),
+        Command::Spend { ticket } => spend::report::run(&home, ticket.as_deref()),
         Command::Config { action } => board_cli::config(&home, action),
     }
 }
@@ -111,10 +120,25 @@ fn record_hook(home: &LanesHome, kind: AgentKind) -> Result<()> {
     let input = read_stdin_json()?;
     let agent = agent::get(kind);
     record_artifact_edit(home, agent.edited_file(&input))?;
+    if agent.is_compaction_start(&input) {
+        print_compaction_reminder(home)?;
+    }
     let Some((session_id, state)) = agent.parse_hook(&input) else {
         return Ok(());
     };
     StateStore::new(home.clone()).write_hook(&session_id, &state)
+}
+
+/// SessionStart hook output becomes context, so this puts the ticket brief back after compaction.
+fn print_compaction_reminder(home: &LanesHome) -> Result<()> {
+    let (Ok(ticket), Ok(column)) = (std::env::var(TICKET_ENV), std::env::var(COLUMN_ENV)) else {
+        return Ok(());
+    };
+    let board = Board::open(home.clone(), std::env::current_exe()?)?;
+    if let Some(reminder) = board.compaction_reminder(&ticket, &column)? {
+        print!("{reminder}");
+    }
+    Ok(())
 }
 
 /// Attributes a session's direct edit of an artifact file to its stage.

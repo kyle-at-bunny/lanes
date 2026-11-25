@@ -231,6 +231,9 @@ pub fn config_warnings(config: &BoardConfig) -> Vec<String> {
             agent.display_name()
         ));
     }
+    if config.spend.mode != crate::spend::SpendMode::Off && !agent.capabilities().usage {
+        warnings.push(format!("{} doesn't report its context size or token usage, so [spend] has no effect on its sessions", agent.display_name()));
+    }
     warnings.extend(missing_program);
     warnings
 }
@@ -367,6 +370,19 @@ permission_mode = \"plan\"
         assert!(warnings.iter().any(|w| w == "OpenCode ignores [defaults] model"), "{warnings:?}");
         assert!(warnings.iter().any(|w| w == "OpenCode ignores permission_mode in column 'dev'"), "{warnings:?}");
         assert!(warnings.iter().any(|w| w.contains("first message")));
+        let lean = BoardConfig::parse(
+            "[defaults]
+agent = \"opencode\"
+[agents.opencode]
+path = \"oc.exe\"
+[spend]
+mode = \"lean\"
+[[columns]]
+id = \"dev\"
+",
+        )
+        .unwrap();
+        assert!(config_warnings(&lean).iter().any(|w| w.contains("[spend] has no effect")));
         assert!(
             config_warnings(
                 &BoardConfig::parse(

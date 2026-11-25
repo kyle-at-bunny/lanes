@@ -8,6 +8,7 @@ use crate::artifacts::ArtifactStore;
 use crate::config::{ArtifactRef, ArtifactType, BoardConfig, ColumnDef};
 use crate::paths::{LanesHome, portable};
 use crate::session::lanes_command;
+use crate::spend;
 use crate::ticket::Ticket;
 
 const DEFAULT_REENTRY: &str = "Ticket {{ ticket.id }} is back in the {{ column.title }} stage{% if from %} (returned from {{ from }}){% endif %}. \
@@ -53,7 +54,29 @@ impl PromptBuilder<'_> {
             text.push_str("## Inputs from earlier stages\n\n");
             text.push_str(&self.inputs_section(&inputs)?);
         }
+        if let Some(summary) = self.previous_session_summary() {
+            let _ = write!(
+                text,
+                "## Summary from this stage's previous session\n\nAn earlier session worked on this stage and handed over with this summary. Continue from it.\n\n{}\n",
+                summary.trim()
+            );
+        }
         Ok(text)
+    }
+
+    /// Asks a session to hand over to a fresh one by writing a self-contained summary.
+    pub fn fresh_handoff(&self) -> String {
+        let path = portable(&spend::summary_path(self.home, &self.ticket.id, &self.column.id));
+        format!(
+            "This conversation has grown large, so the {} stage will continue in a fresh session that starts from your summary instead of this transcript. \
+             Write the summary as a markdown file at `{path}`: what is done, decisions and why, the current state of the work, open questions, \
+             and the exact next steps with the files involved. Write any stage outputs that are ready too. Then tell me the summary is written.",
+            self.column.title()
+        )
+    }
+
+    fn previous_session_summary(&self) -> Option<String> {
+        std::fs::read_to_string(spend::summary_path(self.home, &self.ticket.id, &self.column.id)).ok().filter(|s| !s.trim().is_empty())
     }
 
     pub fn reentry(&self, from: Option<&str>, changed: &[String]) -> Result<String> {

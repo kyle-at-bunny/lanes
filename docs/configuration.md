@@ -21,6 +21,7 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 - [Prompt templates](#prompt-templates)
 - [Agents](#agents)
 - [Actions and cleanup commands](#actions-and-cleanup-commands)
+- [`[spend]`](#spend)
 - [Work item links](#work-item-links)
 
 ## `[defaults]`
@@ -131,6 +132,7 @@ permission_mode = "plan"
 | `permission_mode` | Permission mode for this stage, e.g. `"plan"` or `"acceptEdits"` (Claude Code only). |
 | `extra_args` | Extra agent CLI arguments, e.g. `["--add-dir", "~/projects/shared"]`. |
 | `start` | `"wait"` or `"prompt"`; overrides `[defaults] start` for this stage (e.g. `"prompt"` for a QA stage that should just run). |
+| `max_context` | Overrides `[spend] max_context` for this stage's lean sessions; see [`[spend]`](#spend). |
 | `reentry` | Template for the message used when a ticket returns to this stage with changed inputs. With `start = "wait"` it is typed into Claude's input box without being sent, so you can edit it first. In external terminals, and with `"prompt"`, it is sent. |
 | `handoff` | Template for the message the **Request handoff** button sends, asking the session to write its outputs. |
 | `cleanup` | Command run during **Finish & clean up** in this stage's session folder. |
@@ -224,6 +226,30 @@ id = "dev"
 cwd = "~/projects/my-app"
 cleanup = "git worktree remove --force ../wt-{{ ticket.id }}"
 ```
+
+## `[spend]`
+
+Token-saving features for stage sessions, and an A/B test that measures whether they help. They rely on Claude Code reporting its context size and token usage, so they apply to Claude sessions only; `lanes config check` warns when the board's agent can't use them. Most of the cost of a long session is re-reading its whole context on every turn, so these features keep stage sessions small.
+
+```toml
+[spend]
+mode = "ab"            # "off" (default) | "lean" | "ab"
+max_context = 300000   # lean sessions auto-compact at this many tokens
+nudge_at = 250000      # lean sessions suggest a fresh session past this many tokens
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `mode` | `"off"` | `"off"` runs every session with Claude Code's defaults. `"lean"` turns the features below on for every ticket. `"ab"` turns them on for half of the tickets: each ticket gets an arm (lean or baseline) when its first session starts, balancing the two. Tickets that already had sessions stay out of the test. |
+| `max_context` | `300000` | Lean sessions are launched with `--autocompact <max_context>`, so Claude Code compacts them at this size instead of close to the model's full window. The minimum is 100000. Columns can override it with `max_context`. |
+| `nudge_at` | `250000` | Once a lean session's context passes this many tokens, its card shows the size and "hand off". |
+
+What a lean ticket gets:
+- **A context limit.** `--autocompact <max_context>` on every launch and resume.
+- **The brief again after compaction.** Lanes adds the ticket brief and the current inputs from earlier stages back into the conversation right after Claude Code compacts it.
+- **Hand off to a fresh session.** In the ticket panel, **Hand off to a fresh session** asks the running session to write a summary to `tickets/<id>/sessions/<column>.summary.md`. Once it exists, **Start fresh from summary** ends that session and starts a new one for the same stage. The new session's brief includes the summary. The old session is kept on the ticket, so its spend still counts.
+
+**Measuring it.** `lanes spend` reads Claude Code's transcripts for every session each ticket has had. It prints spend per ticket and stage, and a comparison of the two arms using the mean spend of finished tickets. A ticket is finished once it's in the last column or archived. The ticket panel shows the same figures for the selected ticket. Spend is counted in input-token equivalents at API price ratios: a cache read counts 0.1, a cache write 1.25 (5-minute cache) or 2 (1-hour cache), output 5. How a subscription plan weighs these isn't documented, so treat the figures as relative.
 
 ## Work item links
 

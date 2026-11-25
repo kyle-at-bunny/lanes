@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::agent::AgentKind;
 use crate::link::TicketLink;
 use crate::paths::{LanesHome, now_unix, write_atomic};
+use crate::spend::Variant;
 use crate::timeline::{self, EventKind};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -31,6 +32,23 @@ pub struct Ticket {
     /// Per-column working folders, taking precedence over `cwd` for that column.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub column_cwd: BTreeMap<String, String>,
+    /// Which arm of the `[spend] mode = "ab"` test this ticket is in; set before its first session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spend_variant: Option<Variant>,
+    /// Sessions replaced by "Start fresh", kept so their spend still counts towards the ticket.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_sessions: Vec<RetiredSession>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RetiredSession {
+    pub column: String,
+    pub id: Uuid,
+    pub retired_at: u64,
+    #[serde(default)]
+    pub agent: AgentKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -93,6 +111,29 @@ impl Ticket {
             "" => self.column_cwd.remove(column),
             folder => self.column_cwd.insert(column.to_string(), folder.to_string()),
         };
+    }
+
+    /// Unlinks the stage's session so the next start creates a new one, keeping its id for spend accounting.
+    pub fn retire_session(&mut self, column: &str) -> Option<Uuid> {
+        let record = self.sessions.remove(column)?;
+        let agent_session_id = record.agent_session_id.clone();
+        self.retired_sessions.push(RetiredSession { column: column.to_string(), id: record.id, retired_at: now_unix(), agent: record.agent, agent_session_id });
+        Some(record.id)
+    }
+
+    /// The agent behind one of this ticket's current or retired sessions, with the agent's own id for it.
+    pub fn session_agent(&self, session_id: &Uuid) -> Option<(AgentKind, String)> {
+        if let Some(record) = self.sessions.values().find(|r| r.id == *session_id) {
+            return Some((record.agent, record.agent_session_id()));
+        }
+        let retired = self.retired_sessions.iter().find(|r| r.id == *session_id)?;
+        Some((retired.agent, retired.agent_session_id.clone().unwrap_or_else(|| retired.id.to_string())))
+    }
+
+    /// Every session this stage has had, oldest first.
+    pub fn stage_session_ids(&self, column: &str) -> Vec<Uuid> {
+        let retired = self.retired_sessions.iter().filter(|r| r.column == column).map(|r| r.id);
+        retired.chain(self.session(column).map(|r| r.id)).collect()
     }
 
     pub fn last_arrival_from(&self) -> Option<&str> {
@@ -174,6 +215,8 @@ impl TicketStore {
             sessions: BTreeMap::new(),
             link: None,
             column_cwd: BTreeMap::new(),
+            spend_variant: None,
+            retired_sessions: Vec::new(),
         };
         self.save(&ticket)?;
         timeline::record(&self.home, &ticket.id, EventKind::Created, format!("created in {column}"))?;

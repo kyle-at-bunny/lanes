@@ -12,6 +12,7 @@ pub enum EventKind {
     Moved,
     SessionStarted,
     SessionResumed,
+    SessionReplaced,
     ArtifactWritten,
     ActionRun,
     CleanupRun,

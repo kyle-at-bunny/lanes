@@ -51,6 +51,9 @@ impl AgentCli for Claude {
                 args.extend([flag.to_string(), value.to_string()]);
             }
         }
+        if let Some(tokens) = request.max_context {
+            args.extend(["--autocompact".to_string(), tokens.to_string()]);
+        }
         args.extend(request.extra_args.iter().cloned());
         args.extend(request.initial_prompt.clone());
         Ok(args)
@@ -108,6 +111,16 @@ impl AgentCli for Claude {
                 || ["CLAUDE_CODE_", "CLAUDE_AGENT_SDK_", "MCP_"].iter().any(|prefix| upper.starts_with(prefix))
         };
         names.iter().filter(|name| leaked(name)).cloned().collect()
+    }
+
+    /// Claude Code starts a new segment of the session with `source: "compact"` right after compacting it.
+    fn is_compaction_start(&self, event: &Value) -> bool {
+        event.get("hook_event_name").and_then(Value::as_str) == Some("SessionStart") && event.get("source").and_then(Value::as_str) == Some("compact")
+    }
+
+    /// Read from the session's transcript and its subagents' transcripts.
+    fn token_usage(&self, agent_session_id: &str) -> Option<crate::spend::usage::Usage> {
+        crate::spend::usage::session_usage(&agent_session_id.parse().ok()?)
     }
 }
 
@@ -171,10 +184,17 @@ fn status_snapshot(input: &Value) -> StatusSnapshot {
     StatusSnapshot {
         at: now_unix(),
         context_used_pct: input.pointer("/context_window/used_percentage").and_then(Value::as_f64),
+        context_tokens: context_tokens(input),
         model: input.pointer("/model/display_name").and_then(Value::as_str).map(str::to_string),
         five_hour: limit("five_hour"),
         seven_day: limit("seven_day"),
     }
+}
+
+fn context_tokens(input: &Value) -> Option<u64> {
+    let usage = input.pointer("/context_window/current_usage")?;
+    let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    Some(field("input_tokens") + field("cache_creation_input_tokens") + field("cache_read_input_tokens"))
 }
 
 fn default_status_line(snapshot: &StatusSnapshot) -> String {
@@ -277,6 +297,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn recognises_the_start_after_compaction() {
+        assert!(Claude.is_compaction_start(&json!({"hook_event_name": "SessionStart", "source": "compact"})));
+        assert!(!Claude.is_compaction_start(&json!({"hook_event_name": "SessionStart", "source": "resume"})));
+        assert!(!Claude.is_compaction_start(&json!({"hook_event_name": "Stop", "source": "compact"})));
+    }
+
+    #[test]
+    fn reads_context_tokens_from_the_status_line() {
+        let input = json!({"context_window": {"current_usage": {"input_tokens": 5, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 84000, "output_tokens": 300}}});
+        assert_eq!(status_snapshot(&input).context_tokens, Some(85_005));
+        assert_eq!(status_snapshot(&json!({})).context_tokens, None);
+    }
+
+    #[test]
     fn strips_a_parent_claude_sessions_variables_only_inside_one() {
         let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let inside = names(&["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "MCP_TIMEOUT", "ANTHROPIC_BASE_URL", "PATH", "ANTHROPIC_API_KEY"]);
@@ -366,6 +400,7 @@ mod tests {
             effort: None,
             permission_mode: Some("plan"),
             extra_args: &extra,
+            max_context: None,
         };
         let args = Claude.launch_args(&request).unwrap();
         assert_eq!(&args[..2], ["--resume".to_string(), id.to_string()]);

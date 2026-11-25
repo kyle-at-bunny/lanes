@@ -64,6 +64,34 @@ impl SessionLauncher<'_> {
         self.prompts(ticket, column).handoff()
     }
 
+    /// Asks the running session to write the summary its fresh successor will start from.
+    pub fn fresh_handoff_message(&self, ticket: &Ticket, column_id: &str) -> Result<String> {
+        let column = self.config.column(column_id).with_context(|| format!("unknown column '{column_id}'"))?;
+        Ok(self.prompts(ticket, column).fresh_handoff())
+    }
+
+    /// Replaces the stage's session with a new one whose brief includes the previous session's summary.
+    pub fn start_fresh(&self, ticket: &mut Ticket, column_id: &str) -> Result<LaunchSpec> {
+        let retired = ticket.retire_session(column_id).with_context(|| format!("{} has no session in '{column_id}' to replace", ticket.id))?;
+        timeline::record(
+            self.home,
+            &ticket.id,
+            EventKind::SessionReplaced,
+            format!("{} session {retired} replaced", self.config.column(column_id).map_or(column_id, ColumnDef::title)),
+        )?;
+        self.prepare(ticket, column_id)
+    }
+
+    /// Context for Claude Code to add after it compacts a lean session: the brief and current inputs, which compaction may have dropped.
+    pub fn compaction_reminder(&self, ticket: &Ticket, column_id: &str) -> Result<Option<String>> {
+        let Some(column) = self.config.column(column_id) else { return Ok(None) };
+        if !self.config.spend.is_lean(ticket) {
+            return Ok(None);
+        }
+        let brief = self.prompts(ticket, column).kickoff()?;
+        Ok(Some(format!("Your conversation was just compacted. This is the ticket you are working on, with the current inputs from earlier stages:\n\n{brief}")))
+    }
+
     fn new_spec(&self, ticket: &Ticket, column: &ColumnDef) -> Result<LaunchSpec> {
         let agent = agent::get(self.config.defaults.agent);
         let session_id = Uuid::new_v4();
@@ -78,7 +106,7 @@ impl SessionLauncher<'_> {
             (StartMode::Prompt, true) => Some(self.kickoff_argument(ticket, column)?),
             (StartMode::Prompt, false) => Some(self.first_message_with_instructions(ticket, column, &system_prompt)?),
         };
-        let request = self.request(column, session_id, &agent_session_id, false, has_system_prompt.then_some(system_file.as_path()), initial_prompt);
+        let request = self.request(ticket, column, session_id, &agent_session_id, false, has_system_prompt.then_some(system_file.as_path()), initial_prompt);
         let args = agent.launch_args(&request)?;
         self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd)
     }
@@ -110,7 +138,7 @@ impl SessionLauncher<'_> {
             Some(message) if self.can_draft(column) => (Some(message), None),
             message => (None, message),
         };
-        let request = self.request(column, record.id, &agent_session_id, true, None, initial_prompt);
+        let request = self.request(ticket, column, record.id, &agent_session_id, true, None, initial_prompt);
         let args = agent.launch_args(&request)?;
         let mut spec = self.spec(ticket, column, agent, record.id, agent_session_id, LaunchKind::Resume, args, record.cwd.clone())?;
         spec.draft = draft;
@@ -131,8 +159,10 @@ impl SessionLauncher<'_> {
     }
 
     /// Stage settings are passed on every launch, since agents don't all keep them with a resumed session.
+    #[allow(clippy::too_many_arguments)]
     fn request<'r>(
         &'r self,
+        ticket: &Ticket,
         column: &'r ColumnDef,
         session_id: Uuid,
         agent_session_id: &'r str,
@@ -153,6 +183,7 @@ impl SessionLauncher<'_> {
             effort: column.effort.as_deref().or(defaults.effort.as_deref()),
             permission_mode: column.permission_mode.as_deref(),
             extra_args: &column.extra_args,
+            max_context: self.config.spend.is_lean(ticket).then(|| self.config.spend.max_context(column)),
         }
     }
 
@@ -387,6 +418,48 @@ consumes = ["plan", "notes?"]
         let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
         assert_eq!(resumed.args, ["--session", new.args[1].as_str()]);
         assert_eq!(resumed.session_id, new.session_id);
+    }
+
+    #[test]
+    fn lean_tickets_cap_context_on_every_launch() {
+        let (_dir, home, mut config) = fixture();
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-6"), "T", "", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        assert!(!launcher.prepare(&mut ticket, "dev").unwrap().args.contains(&"--autocompact".to_string()));
+
+        config.spend.mode = crate::spend::SpendMode::Lean;
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
+        assert!(resumed.args.windows(2).any(|w| w == ["--autocompact", "300000"]), "{:?}", resumed.args);
+    }
+
+    #[test]
+    fn start_fresh_retires_the_session_and_seeds_the_summary() {
+        let (_dir, home, config) = fixture();
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-7"), "T", "", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        let first = launcher.prepare(&mut ticket, "dev").unwrap();
+        let summary_path = crate::spend::summary_path(&home, "T-7", "dev");
+        assert!(launcher.fresh_handoff_message(&ticket, "dev").unwrap().contains(&portable(&summary_path)));
+        std::fs::write(&summary_path, "Done: parser. Next: wire the CLI.").unwrap();
+
+        let fresh = launcher.start_fresh(&mut ticket, "dev").unwrap();
+        assert_eq!(fresh.kind, LaunchKind::New);
+        assert_ne!(fresh.session_id, first.session_id);
+        assert!(fresh.args.last().unwrap().contains("Next: wire the CLI."));
+        assert_eq!(ticket.stage_session_ids("dev"), [first.session_id, fresh.session_id]);
+        assert!(launcher.start_fresh(&mut TicketStore::new(home.clone()).create(Some("T-8"), "T", "", "dev").unwrap(), "dev").is_err());
+    }
+
+    #[test]
+    fn compaction_reminder_is_only_for_lean_tickets() {
+        let (_dir, home, mut config) = fixture();
+        let ticket = TicketStore::new(home.clone()).create(Some("T-9"), "Remember me", "", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        assert_eq!(launcher.compaction_reminder(&ticket, "dev").unwrap(), None);
+        config.spend.mode = crate::spend::SpendMode::Lean;
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        assert!(launcher.compaction_reminder(&ticket, "dev").unwrap().unwrap().contains("# Ticket T-9: Remember me"));
     }
 
     #[test]

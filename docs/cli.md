@@ -16,6 +16,7 @@ lanes ticket edit <ID> [--title "<t>"] [--description "<d>"] [--link <url> [--li
 lanes config check                            Validate board.toml and the prompt files it references
 lanes config schema [--write]                 Print board.toml's JSON Schema; --write saves board.schema.json and points board.toml at it
 lanes config docs                             Print the configuration reference for this version of Lanes
+lanes spend [--ticket <ID>]                   Token spend per ticket and stage, and the [spend] A/B comparison
 ```
 
 **IDs.** Without `--id`, tickets are numbered `T-001`, `T-002`, …. IDs never repeat, even across archived tickets.
@@ -25,6 +26,8 @@ lanes config docs                             Print the configuration reference 
 **Work item links.** `--link` links a ticket to its work item in any tracker, given its URL. `--link ""` removes the link. Lanes works out a short key from Jira, Azure DevOps, GitHub, GitLab and Linear URLs; for others, pass `--link-key`. Linked tickets show the key as a link on their board card and an **Open <key>** link in the ticket panel, and every stage's ticket brief includes the URL. `--jira` still works as another name for `--link`. See [Work item links](configuration.md#work-item-links).
 
 **Editor completion.** `config schema --write` saves `board.schema.json` next to `board.toml` and adds a `#:schema ./board.schema.json` line to the top of `board.toml`. Editors that read it (e.g. VS Code with Even Better TOML) then complete and validate keys. New boards are set up this way, and Lanes rewrites the schema when a new version adds options.
+
+**Spend.** `spend` reads Claude Code's own transcripts for every session each ticket has had, including sessions replaced by **Start fresh from summary**. It counts subagents too. Figures are input-token equivalents at API price ratios. See [`[spend]`](configuration.md#spend).
 
 **Moving tickets.** `ticket move` refuses to move a ticket forward while its current column's required outputs are missing; `--force` moves it anyway. Moving from the CLI doesn't start the new stage's session. Open the ticket in Lanes to start or resume it.
 

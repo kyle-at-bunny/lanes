@@ -18,6 +18,12 @@ cleanup_on_done = false      # offer "Finish & clean up" automatically when a ca
 # A column can set `cleanup = "<command>"` (same templates as actions); it runs in that
 # column's session folder during "Finish & clean up", e.g. cleanup = "git worktree remove ."
 
+# Token-saving features for stage sessions; `lanes spend` shows the results.
+# [spend]
+# mode = "ab"            # "off" (default) | "lean" (every ticket) | "ab" (half the new tickets, to compare)
+# max_context = 300000   # lean sessions auto-compact at this many tokens of context
+# nudge_at = 250000      # lean sessions suggest handing off to a fresh session past this
+
 # Artifacts are the only thing that moves between columns.
 # type = "file" -> a markdown file in the ticket's artifacts folder
 # type = "text" -> a short value saved with `lanes artifact set <name> "<text>"`

@@ -75,6 +75,8 @@ pub struct LaunchRequest<'a> {
     pub effort: Option<&'a str>,
     pub permission_mode: Option<&'a str>,
     pub extra_args: &'a [String],
+    /// Lean spend mode: compact the conversation once its context reaches this many tokens.
+    pub max_context: Option<u32>,
 }
 
 /// Where to find a session's conversation.
@@ -149,6 +151,16 @@ pub trait AgentCli: Sync {
     /// Of the variable names in Lanes' own environment, those a parent session of this agent leaked (when Lanes was started from one); no child session may inherit them.
     fn leaked_env_vars(&self, _names: &[String]) -> Vec<String> {
         Vec::new()
+    }
+
+    /// Whether a hook event marks the session continuing right after compacting its conversation; the hook then prints the ticket brief back into context.
+    fn is_compaction_start(&self, _event: &Value) -> bool {
+        false
+    }
+
+    /// Tokens the session has used so far, for the spend ledger; None when the agent doesn't report them.
+    fn token_usage(&self, _agent_session_id: &str) -> Option<crate::spend::usage::Usage> {
+        None
     }
 }
 

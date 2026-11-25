@@ -39,6 +39,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Works with any tracker.** Link a ticket to its Jira, Azure DevOps, GitHub, GitLab or Linear work item (or anything with a URL). The key appears as a link on the card and the URL is passed to Claude. To import work items, give the board assistant your tracker's MCP server and ask it. Lanes holds no tracker credentials.
 - **Editable tickets.** The ticket panel shows the full description, scrolling when it's long, with **Edit description** to change it in place.
 - **Resizable ticket panel.** Drag the divider, or switch between a wide and a narrow panel. Drag the line under the ticket details to give the session more height.
+- **Token spend.** `lanes spend` and the ticket panel show what each ticket and stage cost, read from Claude Code's own transcripts. Optional lean mode keeps stage sessions small with a context limit and a **Hand off to a fresh session** button, and an A/B mode measures whether that helps. See [`[spend]`](docs/configuration.md#spend).
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
 - **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".

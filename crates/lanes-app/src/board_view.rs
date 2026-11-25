@@ -35,6 +35,7 @@ mod folders;
 mod lifecycle;
 mod pr_status;
 mod sessions_view;
+mod spend;
 mod split;
 
 use crate::palette::TerminalThemeChoice;
@@ -111,6 +112,7 @@ fn event_label(kind: EventKind) -> &'static str {
         EventKind::Moved => "moved",
         EventKind::SessionStarted => "session started",
         EventKind::SessionResumed => "session resumed",
+        EventKind::SessionReplaced => "fresh session",
         EventKind::ArtifactWritten => "artifact written",
         EventKind::ActionRun => "action",
         EventKind::CleanupRun => "cleanup",
@@ -165,6 +167,7 @@ pub struct LanesApp {
     description_edit: Option<description::DescriptionEdit>,
     show_other_artifacts: bool,
     prs: pr_status::PrTracker,
+    spend: spend::SpendTracker,
     _split_resized: Subscription,
     _appearance: Subscription,
 }
@@ -209,6 +212,7 @@ impl LanesApp {
             description_edit: None,
             show_other_artifacts: false,
             prs: Default::default(),
+            spend: Default::default(),
             _split_resized: split_resized,
             _appearance: appearance,
         };
@@ -328,6 +332,7 @@ impl LanesApp {
                 let alive = this.update_in(cx, |app, window, cx| {
                     app.reload_tickets(window, cx);
                     app.refresh_pr_statuses(cx);
+                    app.refresh_selected_spend(cx);
                     app.announce_attention(window, cx);
                     app.update_tray_badge(cx);
                     app.reload_config_if_changed(window, cx);
@@ -799,6 +804,7 @@ impl LanesApp {
             .and_then(|r| self.board.states.status(&r.id))
             .and_then(|s| s.context_used_pct);
         let outputs = self.output_summary(ticket);
+        let nudge = self.nudge_label(ticket, cx);
         let prs = self.pr_badge(&ticket.id, cx);
         let dragged = DraggedTicket { id: ticket.id.clone(), title: format!("{} {}", ticket.id, ticket.title) };
         let theme = cx.theme();
@@ -826,6 +832,7 @@ impl LanesApp {
                     .text_xs()
                     .text_color(theme.muted_foreground)
                     .when_some(context, |this, pct| this.child(context_label(pct, cx)))
+                    .when_some(nudge, |this, nudge| this.child(nudge))
                     .when_some(outputs, |this, outputs| this.child(outputs))
                     .child(div().flex_1())
                     .child(Button::new(SharedString::from(format!("left-{}", ticket.id))).label("‹").ghost().xsmall().on_click(cx.listener(
@@ -861,6 +868,7 @@ impl LanesApp {
         let column = self.board.config.column(&ticket.column);
         let column_title = column.map(ColumnDef::title).unwrap_or(&ticket.column).to_string();
         let terminal = self.live_terminal(ticket);
+        let live = terminal.as_ref().is_some_and(|t| !t.read(cx).session.has_exited());
         let theme = cx.theme().clone();
         let header = v_flex()
             .p_3()
@@ -912,6 +920,8 @@ impl LanesApp {
             })
             .child(self.render_description(ticket, cx))
             .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
+            .when_some(self.render_fresh_session_actions(ticket, live, cx), |this, row| this.child(row))
+            .when_some(self.render_spend_row(ticket, cx), |this, row| this.child(row))
             .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
             .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
             .when_some(self.render_artifact_summary(ticket, cx), |this, summary| this.child(summary))

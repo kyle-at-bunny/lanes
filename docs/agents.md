@@ -28,6 +28,7 @@ Everything else is a capability (`Capabilities`). When one is missing, Lanes deg
   - the system prompt file (new sessions only);
   - an initial message (the brief, or a re-entry note);
   - `model`, `effort`, `permission_mode` and `extra_args`.
+  - `max_context`, set for lean tickets under `[spend]`: compact the conversation at that many tokens (Claude Code's `--autocompact`).
 
   Write any per-session files the CLI needs here. Claude's `--settings` hooks file is an example.
 - `ignored_settings()`: stage settings the CLI can't apply. `lanes config check` warns about them.
@@ -37,6 +38,7 @@ Everything else is a capability (`Capabilities`). When one is missing, Lanes deg
 - `transcript_file(source)` and `read_transcript(source)`: find the conversation and convert it to `TranscriptEntry` values. Agents that keep transcripts in a database can shell out to their own export command, as OpenCode does.
 - `retention_days()`: how long the agent keeps its own conversations, for the note in the Sessions view.
 - `leaked_env_vars(names)`: variables a parent session of this agent leaves in Lanes' environment when Lanes is started from inside one (Claude Code's `CLAUDECODE`, `CLAUDE_CODE_*`). They are stripped from every session Lanes launches, whatever its agent.
+- `is_compaction_start(event)` and `token_usage(agent_session_id)`: what `[spend]` needs. The first marks a hook event as the session continuing after compaction, so Lanes can put the ticket brief back. The second reports the session's token use for the spend ledger.
 
 ## Registering a new agent
 

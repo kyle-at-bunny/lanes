@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::defaults;
 use crate::paths::{LanesHome, write_atomic};
+pub use crate::spend::{SpendConfig, SpendMode};
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 /// A Lanes board: board.toml in the board folder (~/.lanes by default).
@@ -24,6 +25,9 @@ pub struct BoardConfig {
     /// Per-agent settings, e.g. [agents.claude] path = "claude".
     #[serde(default)]
     pub agents: AgentsConfig,
+    /// Token-saving features for stage sessions, and an A/B test that measures them.
+    #[serde(default)]
+    pub spend: SpendConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -218,6 +222,8 @@ pub struct ColumnDef {
     pub actions: Vec<ActionDef>,
     /// Command run during cleanup in this column's session folder, e.g. removing a worktree.
     pub cleanup: Option<String>,
+    /// Overrides `[spend] max_context` for this column's lean sessions.
+    pub max_context: Option<u32>,
     /// Overrides `[defaults] start` for this column.
     pub start: Option<StartMode>,
 }

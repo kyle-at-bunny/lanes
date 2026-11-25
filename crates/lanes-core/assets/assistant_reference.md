@@ -12,6 +12,7 @@
   the ticket in Lanes and clicks Start session.
 - `{{ lanes }} artifact get --ticket <id> <name>` / `artifact set --ticket <id> <name> "<value>"`
 - `{{ lanes }} config check` validates board.toml and the prompt files it references.
+- `{{ lanes }} spend [--ticket <id>]` shows token spend per ticket and stage, and compares the `[spend]` A/B arms.
 - `{{ lanes }} config docs` prints the full configuration reference; `{{ lanes }} config schema` prints the JSON Schema
   for board.toml (every key, its type, default and meaning). Read them before any config edit you are unsure about.
 
@@ -34,12 +35,13 @@ GitHub MCP server), use them to read work items.
 - `[[columns]]` entries appear in order. Keys: `id`, `title`, `cwd` (folder the stage's sessions run in; a
   template such as `~/worktrees/{{ '{{' }} ticket.id {{ '}}' }}`; omit for holding lanes like Backlog/Done), `prompt` (file under
   `{{ home }}/prompts/`), `consumes` and `produces` (artifact names; a trailing `?` makes an input optional),
-  `model`, `effort`, `permission_mode`, `extra_args`, `start`, `reentry`, `handoff`, `cleanup`, and `[[columns.actions]]`
+  `model`, `effort`, `permission_mode`, `extra_args`, `start`, `max_context`, `reentry`, `handoff`, `cleanup`, and `[[columns.actions]]`
   buttons (`label`, `command`, optional `cwd`).
 - `start` (in `[defaults]` or per column): `"wait"` (default) gives a new session the ticket brief as context and
   waits for the user's first message; `"prompt"` sends the brief as the first message so Claude starts at once.
 - `[artifacts.<name>]` has `type = "file"`, `"text"` or `"html"`, a `description`, and optional `inline = true` (markdown files only). HTML artifacts are self-contained pages the user opens in their browser.
 - `[defaults]` holds board-wide settings (including `agent = "claude" | "opencode"`, the CLI that runs new sessions); `[[actions]]` are buttons on every ticket.
+- `[spend]` has `mode` (`"off"`, `"lean"` or `"ab"`), `max_context` and `nudge_at`: token-saving features for stage sessions.
 - Column prompts are minijinja templates (`{{ '{{' }} ticket.id {{ '}}' }}`, `{{ '{{' }} ticket.title {{ '}}' }}`,
   `{{ '{{' }} ticket.link_url {{ '}}' }}`, `{{ '{{' }} ticket.link_key {{ '}}' }}`, `{{ '{{' }} column.title {{ '}}' }}`). A prompt edit applies to sessions started after it;
   existing sessions keep the prompt they were created with, even when resumed.
