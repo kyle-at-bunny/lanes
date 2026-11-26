@@ -143,6 +143,7 @@ impl LanesApp {
         let editing = self.artifact_edit.as_ref().filter(|e| e.ticket_id == ticket.id && e.name == entry.name);
         let theme = cx.theme().clone();
         let highlight = role == Role::Output && entry.is_missing_required();
+        let collapsed = editing.is_none() && self.ui_prefs.is_artifact_collapsed(&entry.name);
         let content = match (editing, &entry.content, entry.kind) {
             (Some(edit), _, _) => self.render_artifact_editor(edit, cx).into_any_element(),
             (None, None, _) => div().text_xs().text_color(theme.muted_foreground).child("Not produced yet.").into_any_element(),
@@ -158,23 +159,64 @@ impl LanesApp {
             .border_1()
             .border_color(if highlight { theme.warning } else { theme.border })
             .when(highlight, |this| this.bg(theme.warning.opacity(0.12)))
-            .child(self.render_artifact_card_header(ticket, entry, role, editing.is_some(), cx))
-            .when(!entry.description.is_empty(), |this| this.child(div().text_xs().text_color(theme.muted_foreground).child(entry.description.clone())))
-            .child(content)
+            .child(self.render_artifact_card_header(ticket, entry, role, editing.is_some(), collapsed, cx))
+            .when(!collapsed && !entry.description.is_empty(), |this| this.child(div().text_xs().text_color(theme.muted_foreground).child(entry.description.clone())))
+            .when(!collapsed, |this| this.child(content))
             .into_any_element()
     }
 
-    fn render_artifact_card_header(&self, ticket: &Ticket, entry: &ArtifactEntry, role: Role, editing: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn toggle_artifact_collapsed(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.ui_prefs.toggle_artifact_collapsed(name);
+        let _ = self.ui_prefs.save(&self.board.home);
+        cx.notify();
+    }
+
+    /// The chevron and the name both fold the card away, leaving its header.
+    fn render_collapse_toggle(&self, entry: &ArtifactEntry, collapsed: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let (chevron_name, label_name) = (entry.name.clone(), entry.name.clone());
+        h_flex()
+            .items_center()
+            .gap_1()
+            .child(
+                Button::new(SharedString::from(format!("collapse-artifact-{}", entry.name)))
+                    .label(if collapsed { "▸" } else { "▾" })
+                    .ghost()
+                    .xsmall()
+                    .tooltip(if collapsed { "Expand" } else { "Collapse" })
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_artifact_collapsed(&chevron_name, cx))),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("artifact-name-{}", entry.name)))
+                    .cursor_pointer()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(entry.name.clone())
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_artifact_collapsed(&label_name, cx))),
+            )
+    }
+
+    fn render_artifact_card_header(
+        &self,
+        ticket: &Ticket,
+        entry: &ArtifactEntry,
+        role: Role,
+        editing: bool,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let provenance = entry.provenance.as_ref().map(|p| p.describe(&self.board.config, now_unix()));
+        let hidden_lines = entry.content.as_ref().filter(|_| collapsed).map(|text| line_count_label(text));
         h_flex()
             .flex_wrap()
             .items_center()
             .gap_2()
             .text_xs()
-            .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(entry.name.clone()))
+            .child(self.render_collapse_toggle(entry, collapsed, cx))
             .when_some(status_tag(entry, role, &theme), |this, tag| this.child(tag))
             .when_some(provenance, |this, text| this.child(div().text_color(theme.muted_foreground).child(text)))
+            .when_some(hidden_lines, |this, text| this.child(div().text_color(theme.muted_foreground).child(text)))
             .child(div().flex_1())
             .when(!editing, |this| this.children(self.artifact_buttons(ticket, entry, cx)))
     }
@@ -237,6 +279,13 @@ impl LanesApp {
                     cx.notify();
                 }))),
         )
+    }
+}
+
+fn line_count_label(text: &str) -> String {
+    match text.lines().count() {
+        1 => "1 line".to_string(),
+        n => format!("{n} lines"),
     }
 }
 

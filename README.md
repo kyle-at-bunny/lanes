@@ -32,13 +32,13 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 
 - **One session per ticket per stage.** Each column has its own prompt template, working directory, model and permission mode. Sessions resume by ID when a ticket comes back. **Request handoff** asks a running session to write its stage outputs, and **Suspend** stops it so you can resume it later.
 - **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file or a short piece of text. Each new session gets the ticket brief and its inputs as context and waits for your first message (or starts straight away with `start = "prompt"`). Lanes warns you if you move a ticket on before its outputs exist.
-- **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, clickable PR links and repo folders, and PR state and CI results via `gh` (with a card badge like "2 PRs · 1 failing").
+- **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, clickable PR links and repo folders, and PR state and CI results via `gh` (with a card badge like "2 PRs · 1 failing"). Collapse a long artifact such as the plan to its header with ▾; Lanes remembers which artifacts you keep collapsed.
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
 - **Jira import.** Turn issue keys, or your open issues, into tickets. The issue key appears as a link on the board card, the ticket panel links to the issue, and the link is passed to Claude. No API token is needed if the board assistant has Jira tools (e.g. an Atlassian MCP server).
 - **Editable tickets.** The ticket panel shows the full description, scrolling when it's long, with **Edit description** to change it in place.
-- **Resizable ticket panel.** Drag the divider, or switch between a wide and a narrow panel.
+- **Resizable ticket panel.** Drag the divider, or switch between a wide and a narrow panel. Drag the line under the ticket details to give the session more height.
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
 - **Flexible working folders.** A column's folder can be a template, e.g. one git worktree per ticket. Any ticket can override it for all stages or just one.
 - **Action buttons.** Templated one-click commands per column or board-wide, such as "Open in VS Code" or "create worktree".
@@ -217,6 +217,8 @@ Lanes never deletes Claude Code's own data. Claude Code keeps every conversation
 | **Shift+PgUp / PgDn**, wheel | Scrollback. In full-screen apps such as Claude Code, the wheel sends PgUp / PgDn to the app. |
 | **Theme button** | Cycles Auto (follows Windows) → Light → Dark |
 | **Panel divider** | Drag the edge between the board and the ticket/assistant panel to resize it, or double-click it to reset to 50%. **Wider** / **Narrower** in the panel header switches between a 70% and a 35% panel. The width is remembered (in `~/.lanes/ui.toml`). |
+| **Click the board** | Clicking an empty part of the board (anywhere but a card or a form) closes the open ticket or the assistant. Sessions keep running. |
+| **Ticket info divider** | Drag the line between a ticket's details and its Session / Timeline / Transcript / Artifacts tabs to give the session more or less height; the details scroll when they no longer fit. Double-click it to fit the details to their content again. The height is remembered in `ui.toml` too. |
 
 ## Platform support
 

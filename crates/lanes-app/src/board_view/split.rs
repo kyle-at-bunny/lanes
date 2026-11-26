@@ -21,7 +21,7 @@ impl LanesApp {
 
     fn save_panel_width(&mut self, width: Option<f32>) {
         let Some(width) = width.filter(|w| *w >= DETAIL_MIN_WIDTH) else { return };
-        let prefs = UiPrefs { panel_width: Some(width.round()) };
+        let prefs = UiPrefs { panel_width: Some(width.round()), ..self.ui_prefs.clone() };
         if prefs != self.ui_prefs && prefs.save(&self.board.home).is_ok() {
             self.ui_prefs = prefs;
         }

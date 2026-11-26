@@ -29,6 +29,7 @@ mod archive;
 mod artifacts;
 mod assistant;
 mod description;
+mod detail_split;
 mod folders;
 mod jira_import;
 mod lifecycle;
@@ -656,7 +657,26 @@ impl LanesApp {
 
     fn render_board(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let columns: Vec<_> = self.board.config.columns.iter().map(|c| self.render_column(c, window, cx).into_any_element()).collect();
-        h_flex().id("board").flex_1().min_w(px(BOARD_MIN_WIDTH)).h_full().p_2().gap_2().items_start().overflow_x_scroll().children(columns)
+        h_flex()
+            .id("board")
+            .flex_1()
+            .min_w(px(BOARD_MIN_WIDTH))
+            .h_full()
+            .p_2()
+            .gap_2()
+            .items_start()
+            .overflow_x_scroll()
+            .on_click(cx.listener(|this, _, _, cx| this.close_right_panel(cx)))
+            .children(columns)
+    }
+
+    /// Clicking the board itself, rather than a card or a form on it, puts away the ticket panel or the assistant.
+    fn close_right_panel(&mut self, cx: &mut Context<Self>) {
+        if self.selected.is_some() || self.show_assistant {
+            self.selected = None;
+            self.show_assistant = false;
+            cx.notify();
+        }
     }
 
     fn render_column(&self, column: &ColumnDef, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -682,7 +702,8 @@ impl LanesApp {
             )
             .when_some(column.cwd.clone(), |this, cwd| this.child(div().text_xs().text_color(theme.muted_foreground).child(cwd)))
             .when(column.id == self.board.config.first_column().id, |this| {
-                this.when_some(self.render_new_ticket_form(window, cx), |this, form| this.child(form)).when_some(self.render_jira_form(cx), |this, form| this.child(form))
+                this.when_some(self.render_new_ticket_form(window, cx), |this, form| this.child(keep_clicks("new-ticket-form", form)))
+                    .when_some(self.render_jira_form(cx), |this, form| this.child(keep_clicks("jira-form", form)))
             })
             .child(v_flex().id(SharedString::from(format!("cards-{}", column.id))).flex_1().gap_2().overflow_y_scroll().children(cards))
     }
@@ -732,7 +753,10 @@ impl LanesApp {
             .border_color(if selected { theme.ring } else { theme.border })
             .bg(theme.background)
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _, window, cx| this.select(id.clone(), window, cx)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                cx.stop_propagation();
+                this.select(id.clone(), window, cx)
+            }))
             .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { title: dragged.title.clone() }))
             .child(h_flex().justify_between().child(card_id_label(ticket, cx)).child(session_tag(&session, cx)))
             .child(div().text_sm().child(ticket.title.clone()))
@@ -745,20 +769,18 @@ impl LanesApp {
                     .when_some(outputs, |this, outputs| this.child(outputs))
                     .when_some(prs, |this, badge| this.child(badge))
                     .child(div().flex_1())
-                    .child(
-                        Button::new(SharedString::from(format!("left-{}", ticket.id)))
-                            .label("‹")
-                            .ghost()
-                            .xsmall()
-                            .on_click(cx.listener(move |this, _, window, cx| this.step_ticket(&left_id, -1, window, cx))),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("right-{}", ticket.id)))
-                            .label("›")
-                            .ghost()
-                            .xsmall()
-                            .on_click(cx.listener(move |this, _, window, cx| this.step_ticket(&right_id, 1, window, cx))),
-                    ),
+                    .child(Button::new(SharedString::from(format!("left-{}", ticket.id))).label("‹").ghost().xsmall().on_click(cx.listener(
+                        move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.step_ticket(&left_id, -1, window, cx)
+                        },
+                    )))
+                    .child(Button::new(SharedString::from(format!("right-{}", ticket.id))).label("›").ghost().xsmall().on_click(cx.listener(
+                        move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.step_ticket(&right_id, 1, window, cx)
+                        },
+                    ))),
             )
     }
 
@@ -781,65 +803,65 @@ impl LanesApp {
         let column_title = column.map(ColumnDef::title).unwrap_or(&ticket.column).to_string();
         let terminal = self.live_terminal(ticket);
         let theme = cx.theme().clone();
+        let header = v_flex()
+            .p_3()
+            .gap_1()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(ticket.id.clone()))
+                    .child(Tag::secondary().small().child(column_title))
+                    .child(div().flex_1())
+                    .when(self.is_last_column(&ticket.column), |this| {
+                        let ticket_id = ticket.id.clone();
+                        this.child(
+                            Button::new("finish-ticket")
+                                .label("Finish & clean up")
+                                .warning()
+                                .xsmall()
+                                .on_click(cx.listener(move |this, _, window, cx| this.request_cleanup(&ticket_id, window, cx))),
+                        )
+                    })
+                    .child({
+                        let ticket_id = ticket.id.clone();
+                        Button::new("delete-ticket")
+                            .label("Delete")
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(move |this, _, _, cx| this.request_delete_ticket(&ticket_id, cx)))
+                    })
+                    .child(self.panel_width_button(cx))
+                    .child(Button::new("close-detail").label("Close").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
+                        this.selected = None;
+                        cx.notify();
+                    }))),
+            )
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(ticket.title.clone()))
+            .when_some(ticket.jira.clone(), |this, jira| {
+                this.child(
+                    h_flex().child(
+                        Button::new("open-jira")
+                            .label(format!("Open {} in Jira", jira.key))
+                            .link()
+                            .xsmall()
+                            .tooltip(jira.url.clone())
+                            .on_click(move |_, _, cx| cx.open_url(&jira.url)),
+                    ),
+                )
+            })
+            .child(self.render_description(ticket, cx))
+            .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
+            .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
+            .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
+            .when_some(self.render_artifact_summary(ticket, cx), |this, summary| this.child(summary));
         v_flex()
             .size_full()
             .border_l_1()
             .border_color(theme.border)
-            .child(
-                v_flex()
-                    .p_3()
-                    .gap_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(div().text_xs().text_color(theme.muted_foreground).child(ticket.id.clone()))
-                            .child(Tag::secondary().small().child(column_title))
-                            .child(div().flex_1())
-                            .when(self.is_last_column(&ticket.column), |this| {
-                                let ticket_id = ticket.id.clone();
-                                this.child(
-                                    Button::new("finish-ticket")
-                                        .label("Finish & clean up")
-                                        .warning()
-                                        .xsmall()
-                                        .on_click(cx.listener(move |this, _, window, cx| this.request_cleanup(&ticket_id, window, cx))),
-                                )
-                            })
-                            .child({
-                                let ticket_id = ticket.id.clone();
-                                Button::new("delete-ticket")
-                                    .label("Delete")
-                                    .ghost()
-                                    .xsmall()
-                                    .on_click(cx.listener(move |this, _, _, cx| this.request_delete_ticket(&ticket_id, cx)))
-                            })
-                            .child(self.panel_width_button(cx))
-                            .child(Button::new("close-detail").label("Close").ghost().xsmall().on_click(cx.listener(|this, _, _, cx| {
-                                this.selected = None;
-                                cx.notify();
-                            }))),
-                    )
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(ticket.title.clone()))
-                    .when_some(ticket.jira.clone(), |this, jira| {
-                        this.child(
-                            h_flex().child(
-                                Button::new("open-jira")
-                                    .label(format!("Open {} in Jira", jira.key))
-                                    .link()
-                                    .xsmall()
-                                    .tooltip(jira.url.clone())
-                                    .on_click(move |_, _, cx| cx.open_url(&jira.url)),
-                            ),
-                        )
-                    })
-                    .child(self.render_description(ticket, cx))
-                    .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
-                    .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
-                    .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
-                    .when_some(self.render_artifact_summary(ticket, cx), |this, summary| this.child(summary)),
-            )
+            .on_drag_move(cx.listener(|this, event, _, cx| this.on_header_drag(event, cx)))
+            .child(self.render_detail_header(header, cx))
             .child(self.render_tab_strip(ticket, cx))
             .child(match (self.detail_tab, terminal) {
                 (DetailTab::Session, Some(terminal)) => div().flex_1().min_h_0().p_1().bg(theme.background).child(terminal).into_any_element(),
@@ -1104,4 +1126,9 @@ fn usage_meter(label: &'static str, limit: Limit, cx: &App) -> impl IntoElement 
         .text_xs()
         .child(div().w(px(90.)).child(Progress::new(label).value(limit.used_pct as f32).color(color)))
         .child(format!("{label} {:.0}%{reset}", limit.used_pct))
+}
+
+/// Wraps something on the board whose clicks must not reach the board, which would close the open panel.
+fn keep_clicks(id: &'static str, content: impl IntoElement) -> impl IntoElement {
+    div().id(id).on_click(|_, _, cx| cx.stop_propagation()).child(content)
 }
