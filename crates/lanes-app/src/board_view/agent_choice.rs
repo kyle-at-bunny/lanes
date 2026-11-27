@@ -51,6 +51,16 @@ impl LanesApp {
         Some(v_flex().gap_0p5().text_xs().child(choice).child(div().w_full().text_color(theme.muted_foreground).child(features)).into_any_element())
     }
 
+    /// Before a stage's first session: warns that the ticket's agent can't keep a plan column read-only.
+    pub(super) fn render_plan_mode_warning(&self, ticket: &Ticket, cx: &App) -> Option<AnyElement> {
+        if ticket.session(&ticket.column).is_some() {
+            return None;
+        }
+        let column = self.board.config.column(&ticket.column)?;
+        let warning = agent::unenforced_plan_mode(agent::get(self.board.config.ticket_agent(ticket)), column)?;
+        Some(div().text_xs().text_color(cx.theme().warning).child(format!("⚠ {warning}")).into_any_element())
+    }
+
     /// Small tags on the card for a non-default agent and for lean sessions picked for the ticket.
     pub(super) fn card_tags(&self, ticket: &Ticket) -> Vec<AnyElement> {
         let lean = ticket.lean.then(|| Tag::secondary().outline().xsmall().child("lean").into_any_element());

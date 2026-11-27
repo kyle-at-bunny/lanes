@@ -244,16 +244,20 @@ fn agent_warnings(config: &BoardConfig, kind: crate::agent::AgentKind) -> Vec<St
     let mut warnings: Vec<String> =
         board_level.iter().filter(|(key, set)| *set && ignored.contains(key)).map(|(key, _)| format!("{} ignores [defaults] {key}", agent.display_name())).collect();
     for column in &config.columns {
-        let set = [("model", column.model.is_some()), ("effort", column.effort.is_some()), ("permission_mode", column.permission_mode.is_some())];
+        let plan_warning = crate::agent::unenforced_plan_mode(agent, column);
+        let set =
+            [("model", column.model.is_some()), ("effort", column.effort.is_some()), ("permission_mode", column.permission_mode.is_some() && plan_warning.is_none())];
         warnings.extend(
             set.iter().filter(|(key, set)| *set && ignored.contains(key)).map(|(key, _)| format!("{} ignores {key} in column '{}'", agent.display_name(), column.id)),
         );
+        warnings.extend(plan_warning);
     }
     if !agent.capabilities().system_prompt && config.columns.iter().any(|c| c.has_session() && c.start_mode(defaults) == crate::config::StartMode::Wait) {
-        warnings.push(format!(
-            "{} has no system prompt, so new sessions send the stage prompt and brief as the first message even with start = \"wait\"",
-            agent.display_name()
-        ));
+        let how = match defaults.terminal {
+            crate::config::TerminalMode::Embedded => "typed into its input box in \"wait\" columns, for you to send",
+            crate::config::TerminalMode::External => "sent as its first message, even in \"wait\" columns (an external terminal can't be typed into)",
+        };
+        warnings.push(format!("{} has no system prompt, so a new session's stage prompt and brief are {how}", agent.display_name()));
     }
     let lean_features = crate::spend::lean_features(&agent.capabilities());
     if config.spend.mode != crate::spend::SpendMode::Off && lean_features.len() == 1 {
@@ -434,8 +438,9 @@ permission_mode = \"plan\"
         .unwrap();
         let warnings = config_warnings(&config);
         assert!(warnings.iter().any(|w| w == "OpenCode ignores [defaults] model"), "{warnings:?}");
-        assert!(warnings.iter().any(|w| w == "OpenCode ignores permission_mode in column 'dev'"), "{warnings:?}");
-        assert!(warnings.iter().any(|w| w.contains("first message")));
+        assert!(warnings.iter().any(|w| w.starts_with("OpenCode can't run 'dev' read-only")), "{warnings:?}");
+        assert!(!warnings.iter().any(|w| w == "OpenCode ignores permission_mode in column 'dev'"), "{warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("typed into its input box")));
         let lean = BoardConfig::parse(
             "[defaults]
 agent = \"opencode\"

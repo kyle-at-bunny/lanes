@@ -922,6 +922,7 @@ impl LanesApp {
             .child(self.render_description(ticket, cx))
             .when_some(self.render_agent_choice(ticket, cx), |this, row| this.child(row))
             .when_some(self.render_lean_choice(ticket, cx), |this, row| this.child(row))
+            .when_some(self.render_plan_mode_warning(ticket, cx), |this, row| this.child(row))
             .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
             .when_some(self.render_fresh_session_actions(ticket, live, cx), |this, row| this.child(row))
             .when_some(self.render_spend_row(ticket, cx), |this, row| this.child(row))

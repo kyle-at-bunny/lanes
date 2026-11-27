@@ -12,7 +12,7 @@ Everything else is a capability (`Capabilities`). When one is missing, Lanes deg
 
 | Capability | Used for | Without it |
 | --- | --- | --- |
-| `system_prompt` | Appending the stage prompt (and, with `start = "wait"`, the brief) to the system prompt | The stage prompt and brief go in the first message, and `start = "wait"` behaves like `"prompt"` |
+| `system_prompt` | Appending the stage prompt (and, with `start = "wait"`, the brief) to the system prompt | The stage prompt and brief go in the first message. With `start = "wait"` it is typed into the input box unsent (embedded terminal only), so the agent still waits |
 | `live_state` | Working / needs input / your turn on cards, attention toasts, the quit check | Cards show **running** while the terminal is open |
 | `usage` | "ctx N%" on cards and the 5h / 7d plan meters | Not shown |
 | `transcript` | The Transcript tab and session sizes in the Sessions view | The tab says transcripts aren't available |

@@ -101,14 +101,23 @@ impl SessionLauncher<'_> {
         let mode = if has_system_prompt { column.start_mode(&self.config.defaults) } else { StartMode::Prompt };
         let system_prompt = self.new_system_prompt(ticket, column, mode)?;
         let system_file = self.write_session_file(ticket, column, "system.md", &system_prompt)?;
-        let initial_prompt = match (mode, has_system_prompt) {
-            (StartMode::Wait, _) => None,
-            (StartMode::Prompt, true) => Some(self.kickoff_argument(ticket, column)?),
-            (StartMode::Prompt, false) => Some(self.first_message_with_instructions(ticket, column, &system_prompt)?),
-        };
+        let (initial_prompt, draft) = self.opening(ticket, column, has_system_prompt, &system_prompt)?;
         let request = self.request(ticket, column, session_id, &agent_session_id, false, has_system_prompt.then_some(system_file.as_path()), initial_prompt);
         let args = agent.launch_args(&request)?;
-        self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd)
+        let mut spec = self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd)?;
+        spec.draft = draft;
+        Ok(spec)
+    }
+
+    /// A new session's first message, as (sent at launch, typed in unsent). Agents without a system prompt get the
+    /// instructions and brief as that message, left as a draft in wait columns so the agent doesn't start on its own.
+    fn opening(&self, ticket: &Ticket, column: &ColumnDef, has_system_prompt: bool, system_prompt: &str) -> Result<(Option<String>, Option<String>)> {
+        if has_system_prompt {
+            let send = (column.start_mode(&self.config.defaults) == StartMode::Prompt).then(|| self.kickoff_argument(ticket, column)).transpose()?;
+            return Ok((send, None));
+        }
+        let message = self.first_message_with_instructions(ticket, column, system_prompt)?;
+        Ok(if self.can_draft(column) { (None, Some(message)) } else { (Some(message), None) })
     }
 
     fn new_session_cwd(&self, ticket: &Ticket, column: &ColumnDef) -> Result<PathBuf> {
@@ -153,7 +162,7 @@ impl SessionLauncher<'_> {
         Ok(Some(self.prompts(ticket, column).reentry(ticket.last_arrival_from(), &changed)?))
     }
 
-    /// Wait mode leaves a re-entry note as an editable draft; an external terminal can't be typed into, so it is sent instead.
+    /// Wait mode leaves a message as an editable draft; an external terminal can't be typed into, so it is sent instead.
     fn can_draft(&self, column: &ColumnDef) -> bool {
         self.config.defaults.terminal == TerminalMode::Embedded && column.start_mode(&self.config.defaults) == StartMode::Wait
     }
@@ -419,7 +428,7 @@ path = \"C:/oc/opencode.exe\"",
 
     #[test]
     fn opencode_sessions_send_instructions_first_and_resume_by_their_own_id() {
-        let (_dir, home, config) = fixture_with("agent = \"opencode\"\n[agents.opencode]\npath = \"C:/oc/opencode.exe\"");
+        let (_dir, home, config) = fixture_with("agent = \"opencode\"\nstart = \"prompt\"\n[agents.opencode]\npath = \"C:/oc/opencode.exe\"");
         let mut ticket = TicketStore::new(home.clone()).create(Some("T-6"), "Open it", "Details", "dev").unwrap();
         let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
         ArtifactStore::new(&home, &config, "T-6").write("plan", "the plan").unwrap();
@@ -437,6 +446,21 @@ path = \"C:/oc/opencode.exe\"",
         let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
         assert_eq!(resumed.args, ["--session", new.args[1].as_str()]);
         assert_eq!(resumed.session_id, new.session_id);
+    }
+
+    #[test]
+    fn opencode_waits_with_its_brief_typed_in_unless_the_terminal_is_external() {
+        let opencode = "agent = \"opencode\"\n[agents.opencode]\npath = \"oc.exe\"";
+        let (_dir, home, config) = fixture_with(opencode);
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-6"), "Open it", "Details", "dev").unwrap();
+        let spec = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") }.prepare(&mut ticket, "dev").unwrap();
+        assert_eq!(spec.args.len(), 2, "nothing sent: {:?}", spec.args);
+        assert!(spec.draft.as_deref().is_some_and(|d| d.contains("# Ticket T-6: Open it")));
+
+        let (_dir, home, config) = fixture_with(&format!("terminal = \"external\"\n{opencode}"));
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-7"), "Open it", "Details", "dev").unwrap();
+        let spec = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") }.prepare(&mut ticket, "dev").unwrap();
+        assert_eq!((spec.args[2].as_str(), spec.draft), ("--prompt", None));
     }
 
     #[test]

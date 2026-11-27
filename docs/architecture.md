@@ -37,7 +37,7 @@ input_hashes = { plan = "3a9c…" }
 agent = "claude"
 ```
 
-The flags below are Claude Code's, from `agent/claude.rs`. Other agents get the same request in their own form; OpenCode, for example, has no system-prompt flag, so the stage prompt and brief become its first message.
+The flags below are Claude Code's, from `agent/claude.rs`. Other agents get the same request in their own form; OpenCode, for example, has no system-prompt flag, so the stage prompt and brief become its first message: typed into its input box unsent in wait columns, sent at launch otherwise.
 
 - **First entry** to a column:
   1. Lanes generates a UUID and builds the *ticket brief*: title, work item link, description and the *Inputs from earlier stages*.

@@ -98,7 +98,9 @@ Until a ticket's first session starts, in whatever column, its panel shows an **
 | Claude Code | `"claude"` | yes, from hooks | yes, from the status line | yes |
 | OpenCode | `"opencode"` | no: cards show "running" | no | yes, via `opencode session export` |
 
-**OpenCode notes.** OpenCode has no system-prompt flag, so a new OpenCode session gets the stage prompt and the ticket brief as its first message, even with `start = "wait"`. Long briefs go in a file the message points to. It ignores `model`, `effort` and `permission_mode`; pick its model in OpenCode's own config. `lanes config check` warns about all of this.
+**OpenCode notes.** OpenCode has no system-prompt flag, so a new OpenCode session gets the stage prompt and the ticket brief as its first message. In `start = "wait"` columns Lanes types that message into OpenCode's input box without sending it, so OpenCode waits for you; read it and press Enter. With `start = "prompt"`, or in an external terminal (which Lanes can't type into), it is sent at launch. Long briefs go in a file the message points to. OpenCode ignores `model`, `effort` and `permission_mode`; pick its model in OpenCode's own config.
+
+**OpenCode can't plan read-only.** A column with `permission_mode = "plan"` keeps Claude Code from editing files. OpenCode ignores it, so an OpenCode session in that column can edit files. `lanes config check` warns about this, and the ticket panel shows the warning before such a session starts.
 
 Set an agent's executable under `[agents.<agent>]`:
 

@@ -179,6 +179,14 @@ pub fn all() -> [&'static dyn AgentCli; 2] {
     [&Claude, &OpenCode]
 }
 
+/// A warning when a column asks for read-only planning (`permission_mode = "plan"`) that the agent can't enforce.
+pub fn unenforced_plan_mode(agent: &dyn AgentCli, column: &crate::config::ColumnDef) -> Option<String> {
+    let wants_plan = column.permission_mode.as_deref() == Some("plan");
+    (wants_plan && agent.ignored_settings().contains(&"permission_mode")).then(|| {
+        format!("{} can't run '{}' read-only: it ignores permission_mode = \"plan\", so its sessions there can edit files", agent.display_name(), column.title())
+    })
+}
+
 /// The agents' names for a sentence, e.g. "Claude" or "Claude and OpenCode"; "The agent" when there are none.
 pub fn names(kinds: impl IntoIterator<Item = AgentKind>) -> String {
     let mut seen: Vec<AgentKind> = Vec::new();
@@ -198,6 +206,20 @@ pub fn names(kinds: impl IntoIterator<Item = AgentKind>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warns_when_an_agent_cant_keep_a_plan_column_read_only() {
+        let column = |mode: Option<&str>| crate::config::ColumnDef {
+            id: "plan".into(),
+            title: Some("Plan".into()),
+            permission_mode: mode.map(str::to_string),
+            ..Default::default()
+        };
+        let warning = unenforced_plan_mode(get(AgentKind::OpenCode), &column(Some("plan"))).unwrap();
+        assert_eq!(warning, "OpenCode can't run 'Plan' read-only: it ignores permission_mode = \"plan\", so its sessions there can edit files");
+        assert_eq!(unenforced_plan_mode(get(AgentKind::Claude), &column(Some("plan"))), None);
+        assert_eq!(unenforced_plan_mode(get(AgentKind::OpenCode), &column(Some("acceptEdits"))), None);
+    }
 
     #[test]
     fn names_each_agent_once_for_a_sentence() {
