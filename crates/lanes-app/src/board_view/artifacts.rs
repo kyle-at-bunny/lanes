@@ -16,7 +16,7 @@ use lanes_core::timeline;
 use lanes_core::pr_status::PrCache;
 
 use super::pr_status::{pr_chip, tinted_tag};
-use super::{DetailTab, LanesApp, open_in_shell};
+use super::{DetailTab, LanesApp, open_path};
 
 pub(super) struct ArtifactEdit {
     ticket_id: String,
@@ -232,16 +232,16 @@ impl LanesApp {
                     let page = path.clone();
                     buttons.push(
                         Button::new(id("browse"))
-                            .label("Open in browser")
+                            .label("Open")
                             .ghost()
                             .xsmall()
-                            .tooltip("Open with the program Windows uses for .html files, normally your default browser")
-                            .on_click(move |_, _, _| open_in_shell(&page))
+                            .tooltip("Open with your default program for .html files, normally your browser")
+                            .on_click(move |_, _, _| open_path(&page))
                             .into_any_element(),
                     );
                 }
                 let folder = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
-                buttons.push(Button::new(id("folder")).label("Open folder").ghost().xsmall().on_click(move |_, _, _| open_in_shell(&folder)).into_any_element());
+                buttons.push(Button::new(id("folder")).label("Open folder").ghost().xsmall().on_click(move |_, _, _| open_path(&folder)).into_any_element());
             }
             (Some(path), ArtifactType::File) => {
                 let path = path.clone();
@@ -250,13 +250,13 @@ impl LanesApp {
                         .label("Open")
                         .ghost()
                         .xsmall()
-                        .tooltip("Open in your editor")
+                        .tooltip("Open with your default program for this file type")
                         .on_click(move |_, _, _| {
                             if !path.exists() {
                                 let _ = std::fs::create_dir_all(path.parent().unwrap_or(std::path::Path::new(".")));
                                 let _ = std::fs::write(&path, "");
                             }
-                            open_in_shell(&path)
+                            open_path(&path)
                         })
                         .into_any_element(),
                 );
@@ -446,21 +446,15 @@ fn warning_tag(label: impl Into<SharedString>, theme: &Theme) -> AnyElement {
     tinted_tag(label, theme.warning)
 }
 
+/// Open folder for any local path, plus Open for a file, both with whatever the OS uses for it.
 fn path_buttons(id: &str, path: &str) -> Vec<AnyElement> {
-    let (folder, code) = (path.to_string(), path.to_string());
-    vec![
-        Button::new(SharedString::from(format!("folder-{id}")))
-            .label("Open folder")
-            .ghost()
-            .xsmall()
-            .on_click(move |_, _, _| open_in_shell(&artifact_view::folder_for(&folder)))
-            .into_any_element(),
-        Button::new(SharedString::from(format!("code-{id}"))).label("VS Code").ghost().xsmall().on_click(move |_, _, _| open_in_vscode(&code)).into_any_element(),
-    ]
-}
-
-fn open_in_vscode(path: &str) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let _ = std::process::Command::new("cmd").args(["/C", "code"]).arg(expand_tilde(path)).creation_flags(CREATE_NO_WINDOW).spawn();
+    let target = expand_tilde(path);
+    let folder = artifact_view::folder_for(path);
+    let mut buttons = vec![
+        Button::new(SharedString::from(format!("folder-{id}"))).label("Open folder").ghost().xsmall().on_click(move |_, _, _| open_path(&folder)).into_any_element(),
+    ];
+    if target.is_file() {
+        buttons.push(Button::new(SharedString::from(format!("open-{id}"))).label("Open").ghost().xsmall().on_click(move |_, _, _| open_path(&target)).into_any_element());
+    }
+    buttons
 }

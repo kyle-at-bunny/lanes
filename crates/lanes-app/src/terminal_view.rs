@@ -15,12 +15,12 @@ use uuid::Uuid;
 
 use crate::keys::{Mods, bracketed_paste, encode_key};
 use crate::palette::{self, Palette, to_hsla};
+use crate::platform::{self, ClipboardKey, TERMINAL_FONT};
 use crate::pty::{GridSize, Listener, PtySession};
 
 pub const KEY_CONTEXT: &str = "Terminal";
-const FONT_FAMILY: &str = "Cascadia Mono";
 const FONT_SIZE: f32 = 14.0;
-/// Wheel lines that add up to one PgUp/PgDn sent to a full-screen app (one wheel notch on Windows).
+/// Wheel lines that add up to one PgUp/PgDn sent to a full-screen app (one wheel notch).
 const LINES_PER_PAGE_KEY: f32 = 3.0;
 
 /// Cell geometry from the last layout, shared between painting and mouse handling.
@@ -78,11 +78,11 @@ impl TerminalView {
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let modifiers = &keystroke.modifiers;
-        match (modifiers.control, modifiers.shift, keystroke.key.as_str()) {
-            (true, true, "c") => self.copy_selection(cx),
-            (true, _, "v") => self.paste(cx),
-            (false, true, "pageup") => self.scroll(Scroll::PageUp),
-            (false, true, "pagedown") => self.scroll(Scroll::PageDown),
+        match (platform::clipboard_key(modifiers, keystroke.key.as_str()), modifiers.control, modifiers.shift, keystroke.key.as_str()) {
+            (Some(ClipboardKey::Copy), ..) => self.copy_selection(cx),
+            (Some(ClipboardKey::Paste), ..) => self.paste(cx),
+            (None, false, true, "pageup") => self.scroll(Scroll::PageUp),
+            (None, false, true, "pagedown") => self.scroll(Scroll::PageDown),
             _ => self.send_keystroke(keystroke),
         }
         cx.stop_propagation();
@@ -266,7 +266,7 @@ fn prepare_frame(session: &PtySession, geometry: &Cell<Geometry>, bounds: Bounds
 fn measure_cells(origin: Point<Pixels>, window: &mut Window) -> Geometry {
     let font_size = px(FONT_SIZE);
     let text_system = window.text_system();
-    let font_id = text_system.resolve_font(&font(FONT_FAMILY));
+    let font_id = text_system.resolve_font(&font(TERMINAL_FONT));
     let cell_width = text_system.em_advance(font_id, font_size).unwrap_or(px(FONT_SIZE * 0.6));
     Geometry { origin, cell_width, line_height: (font_size * 1.3).round() }
 }
@@ -332,7 +332,7 @@ fn paint_frame(frame: Frame, focused: bool, window: &mut Window, cx: &mut App) {
 }
 
 fn paint_text(span: &Span, origin: Point<Pixels>, line_height: Pixels, window: &mut Window, cx: &mut App) {
-    let mut run_font = font(FONT_FAMILY);
+    let mut run_font = font(TERMINAL_FONT);
     if span.style.bold {
         run_font.weight = FontWeight::BOLD;
     }

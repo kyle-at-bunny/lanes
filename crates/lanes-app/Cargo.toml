@@ -18,9 +18,13 @@ clap = { version = "4", features = ["derive"] }
 gpui-kit = "0.11"
 alacritty_terminal = "0.26"
 portable-pty = "0.9"
-tray-icon = "0.26"
-raw-window-handle = "0.6"
 uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tray-icon = "0.26"
 
 [build-dependencies]
 embed-resource = "3"

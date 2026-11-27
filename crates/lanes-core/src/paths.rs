@@ -96,9 +96,9 @@ pub fn expand_tilde(path: &str) -> PathBuf {
     }
 }
 
-/// Forward-slash form, which works in Git Bash, cmd and PowerShell alike.
+/// The path as text the platform's shells and Claude's tools all accept (forward slashes on Windows).
 pub fn portable(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::platform::current().portable(path)
 }
 
 pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {

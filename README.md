@@ -33,7 +33,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **One session per ticket per stage.** Each column has its own prompt template, working directory, model and permission mode. Sessions resume by ID when a ticket comes back. **Request handoff** asks a running session to write its stage outputs, and **Suspend** stops it so you can resume it later.
 - **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file, a short piece of text, or an HTML page (mockups, reports) that opens in your browser. Each new session gets the ticket brief and its inputs as context and waits for your first message (or starts straight away with `start = "prompt"`). Lanes warns you if you move a ticket on before its outputs exist.
 - **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, clickable PR links and repo folders, and PR state, CI results, review decision and unresolved comments via `gh`, shown next to each link and under the ticket header (with a card badge like "1 PR · 1 open · changes requested · 2 unresolved"). Collapse a long artifact such as the plan to its header with ▾; Lanes remembers which artifacts you keep collapsed.
-- **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
+- **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by a pseudo-terminal (ConPTY on Windows) and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use an external terminal (Windows Terminal tabs on Windows), set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
 - **Works with any tracker.** Link a ticket to its Jira, Azure DevOps, GitHub, GitLab or Linear work item (or anything with a URL). The key appears as a link on the card and the URL is passed to Claude. To import work items, give the board assistant your tracker's MCP server and ask it. Lanes holds no tracker credentials.
@@ -225,7 +225,7 @@ Lanes never deletes Claude Code's own data. Claude Code keeps every conversation
 | Platform | Status |
 | --- | --- |
 | Windows 10/11 | Developed and tested daily |
-| macOS, Linux | Untested. The UI framework and terminal stack are cross-platform, but process handling, the tray and shell actions have only been exercised on Windows. Contributions welcome. |
+| macOS, Linux | Builds (checked in CI) but untested. Everything OS-specific sits behind a platform interface (`lanes-core/src/platform`, `lanes-app/src/platform`) with best-effort macOS and Linux implementations. There is no tray on Linux, so closing the window quits. Contributions welcome. |
 
 ## FAQ
 

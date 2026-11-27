@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::process::Command;
 
 use anyhow::{Context, Result};
 use minijinja::{Environment, context};
@@ -72,27 +71,15 @@ fn artifact_values(home: &LanesHome, config: &BoardConfig, ticket_id: &str) -> R
 }
 
 pub fn run(action: &PreparedAction) -> Result<ActionOutcome> {
-    let output = shell(&action.command).current_dir(&action.cwd).output().with_context(|| format!("running '{}' in {}", action.command, action.cwd.display()))?;
+    let output = crate::platform::current()
+        .shell_command(&action.command)
+        .current_dir(&action.cwd)
+        .output()
+        .with_context(|| format!("running '{}' in {}", action.command, action.cwd.display()))?;
     let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     let lines: Vec<&str> = combined.lines().filter(|l| !l.trim().is_empty()).collect();
     let tail = lines[lines.len().saturating_sub(OUTPUT_TAIL_LINES)..].join("\n");
     Ok(ActionOutcome { success: output.status.success(), output: tail })
-}
-
-#[cfg(windows)]
-fn shell(command: &str) -> Command {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut process = Command::new("cmd");
-    process.arg("/C").raw_arg(command).creation_flags(CREATE_NO_WINDOW);
-    process
-}
-
-#[cfg(not(windows))]
-fn shell(command: &str) -> Command {
-    let mut process = Command::new("sh");
-    process.args(["-c", command]);
-    process
 }
 
 #[cfg(test)]

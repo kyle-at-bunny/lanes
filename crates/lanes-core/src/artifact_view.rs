@@ -211,13 +211,9 @@ pub fn is_url(text: &str) -> bool {
     rest.is_some_and(|rest| !rest.is_empty())
 }
 
-/// Windows drive paths, UNC paths and `~/` paths.
+/// Absolute local paths for this platform (drive and UNC paths on Windows, `/…` elsewhere) and `~/` paths.
 pub fn is_local_path(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let drive = bytes.len() > 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'\\' | b'/');
-    let unc = text.starts_with("\\\\") && text.len() > 2;
-    let home = (text.starts_with("~/") || text.starts_with("~\\")) && text.len() > 2;
-    drive || unc || home
+    crate::platform::current().is_local_path_text(text)
 }
 
 /// Shortens a long path for display by keeping its last components, e.g. `…\demo\app`.

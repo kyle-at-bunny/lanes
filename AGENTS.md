@@ -58,9 +58,11 @@ GPUI comes through the `gpui-kit` facade, which pins a `gpui-pre` snapshot. Its 
 - **Background work:** use `cx.background_executor().spawn(...)` for blocking work (HTTP, processes), then `this.update_in(cx, ...)` to apply results and show notifications.
 - **Layout:** size regions as a share of the window with a pixel minimum (`flex_1().min_w(px(..))`, `w(relative(..)).min_w(px(..))`), never fixed widths. Rows of buttons and banners should `flex_wrap()`.
 
-## Windows gotchas
+## Platform notes
 
-- **Program lookup:** `portable-pty` picks an extensionless npm shim over `claude.exe`, so `pty::resolve_program` resolves the `.exe` explicitly.
+Everything OS-specific goes through `lanes_core::platform::current()` (processes, opening files, external terminals, path rules) or `lanes-app/src/platform` (console, window hiding, terminal font, clipboard keys). Don't add `cfg(windows)` elsewhere. Windows is the tested platform; macOS and Linux are compile-checked in CI only.
+
+- **Program lookup:** `portable-pty` picks an extensionless npm shim over `claude.exe`, so `Platform::resolve_program` resolves the `.exe` (then an npm `.cmd` shim) explicitly.
 - **ConPTY doesn't EOF when the child exits.** The exit watcher drops the master so the reader thread ends.
 - **Nested Claude sessions:** when Lanes itself runs inside a Claude Code session, the inherited `CLAUDECODE` / `CLAUDE_CODE_*` variables make child sessions misbehave. `launch::inherited_session_vars` strips them; keep it in every spawn path.
 - **Console subcommands:** the binary uses the Windows GUI subsystem, so CLI subcommands call `AttachConsole` to print output.

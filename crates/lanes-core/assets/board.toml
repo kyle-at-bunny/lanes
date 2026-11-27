@@ -82,18 +82,15 @@ id = "done"
 title = "Done"
 
 # Action buttons shown on a ticket's detail panel. User-triggered only.
-# `command` runs through cmd.exe in the ticket's session folder (or `cwd`, if set).
+# `command` runs through the system shell (cmd.exe on Windows, sh elsewhere) in the ticket's
+# session folder (or `cwd`, if set). The ticket panel already has an "Open folder" button.
 # Templates can use {{ ticket.id }}, {{ ticket.title }}, {{ column.id }}, {{ cwd }}
 # and {{ artifacts.<name> }} (text artifacts by value, file artifacts by path).
 # Put [[columns.actions]] under a column for stage-specific actions; [[actions]] apply everywhere.
 
-[[actions]]
-label = "Open folder"
-command = 'start "" .'
-
-[[actions]]
-label = "Open in VS Code"
-command = "code ."
+# [[actions]]
+# label = "Open in VS Code"
+# command = "code ."
 
 # [[columns.actions]]   (place directly after a [[columns]] entry, e.g. dev)
 # label = "Git status"

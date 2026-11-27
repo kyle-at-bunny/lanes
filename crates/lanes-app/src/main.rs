@@ -6,8 +6,13 @@ mod board_view;
 mod icon_art;
 mod keys;
 mod palette;
+mod platform;
 mod pty;
 mod terminal_view;
+#[cfg(not(target_os = "linux"))]
+mod tray;
+#[cfg(target_os = "linux")]
+#[path = "tray_unsupported.rs"]
 mod tray;
 mod window_visibility;
 
@@ -27,9 +32,8 @@ fn main() -> Result<()> {
     }
 }
 
-/// Subcommands are invoked by claude itself, so they need the console the GUI subsystem doesn't get by default.
 fn run_subcommand(cli: &Cli, command: &Command) -> Result<()> {
-    attach_parent_console();
+    platform::attach_parent_console();
     run(cli, command)
 }
 
@@ -37,7 +41,7 @@ fn run_gui(cli: &Cli) -> Result<()> {
     let board = match cli.lanes_home().and_then(|home| Board::open(home, std::env::current_exe()?)) {
         Ok(board) => board,
         Err(err) => {
-            show_startup_error(&format!("Lanes couldn't open the board:\n\n{err:#}\n\nFix the file and start Lanes again."));
+            platform::show_startup_error(&format!("Lanes couldn't open the board:\n\n{err:#}\n\nFix the file and start Lanes again."));
             return Err(err);
         }
     };
@@ -59,37 +63,4 @@ fn run_gui(cli: &Cli) -> Result<()> {
 fn bind_terminal_keys(cx: &mut App) {
     let context = Some(terminal_view::KEY_CONTEXT);
     cx.bind_keys(["tab", "shift-tab", "ctrl-c", "escape", "enter"].map(|key| KeyBinding::new(key, NoAction {}, context)));
-}
-
-#[cfg(windows)]
-fn attach_parent_console() {
-    unsafe extern "system" {
-        fn AttachConsole(process_id: u32) -> i32;
-    }
-    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
-    unsafe {
-        AttachConsole(ATTACH_PARENT_PROCESS);
-    }
-}
-
-#[cfg(not(windows))]
-fn attach_parent_console() {}
-
-/// Errors before the window exists would otherwise vanish, since the GUI build has no console.
-#[cfg(windows)]
-fn show_startup_error(message: &str) {
-    unsafe extern "system" {
-        fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, kind: u32) -> i32;
-    }
-    const MB_ICONERROR: u32 = 0x10;
-    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    let (text, caption) = (wide(message), wide("Lanes"));
-    unsafe {
-        MessageBoxW(0, text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
-    }
-}
-
-#[cfg(not(windows))]
-fn show_startup_error(message: &str) {
-    eprintln!("{message}");
 }

@@ -22,3 +22,20 @@ jobs:
         run: cargo test --workspace --locked
       - name: Build app
         run: cargo build -p lanes-app --locked
+
+  # macOS and Linux aren't tested; this only proves nothing Windows-specific leaks outside the platform modules.
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: GPUI system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev libvulkan-dev libasound2-dev libzstd-dev
+      - name: Check
+        run: cargo check --workspace --all-targets --locked

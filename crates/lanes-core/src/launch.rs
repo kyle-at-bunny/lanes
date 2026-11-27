@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use crate::paths::{LanesHome, portable, write_atomic};
+use crate::platform;
 use crate::session::LaunchSpec;
 
 impl LaunchSpec {
@@ -18,9 +19,9 @@ impl LaunchSpec {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    /// Runs claude attached to the current console; used inside external terminal tabs.
+    /// Runs the session attached to the current console; used inside external terminal tabs.
     pub fn run_attached(&self) -> Result<i32> {
-        let mut command = Command::new(&self.program);
+        let mut command = Command::new(platform::current().resolve_program(&self.program));
         for key in inherited_session_vars() {
             command.env_remove(key);
         }
@@ -29,16 +30,10 @@ impl LaunchSpec {
         Ok(status.code().unwrap_or(1))
     }
 
-    /// A Windows Terminal invocation that opens a tab running `lanes launch <session>`.
-    pub fn external_terminal_command(&self, home: &LanesHome, lanes_exe: &Path) -> Command {
-        let mut command = Command::new("wt.exe");
-        command.args(["-w", "0", "new-tab", "--title", &self.title.replace(';', ","), "-d"]).arg(&self.cwd).arg(lanes_exe).args([
-            "--home",
-            &portable(home.root()),
-            "launch",
-            &self.session_id.to_string(),
-        ]);
-        command
+    /// The platform's external terminal running `lanes launch <session>`, or None when there is none.
+    pub fn external_terminal_command(&self, home: &LanesHome, lanes_exe: &Path) -> Option<Command> {
+        let args = ["--home".to_string(), portable(home.root()), "launch".to_string(), self.session_id.to_string()];
+        platform::current().external_terminal(&self.title, &self.cwd, lanes_exe, &args)
     }
 }
 

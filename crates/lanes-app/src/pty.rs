@@ -1,5 +1,4 @@
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -194,7 +193,7 @@ impl Drop for PtySession {
 }
 
 fn build_command(spec: &LaunchSpec) -> Result<CommandBuilder> {
-    let mut command = CommandBuilder::new(resolve_program(&spec.program));
+    let mut command = CommandBuilder::new(lanes_core::platform::current().resolve_program(&spec.program));
     command.args(&spec.args);
     command.cwd(&spec.cwd);
     for key in lanes_core::launch::inherited_session_vars() {
@@ -206,27 +205,6 @@ fn build_command(spec: &LaunchSpec) -> Result<CommandBuilder> {
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     Ok(command)
-}
-
-/// Resolves a bare program name to its .exe on PATH, since portable-pty would otherwise prefer an extensionless npm shim.
-pub fn resolve_program(program: &str) -> PathBuf {
-    let path = Path::new(program);
-    if path.is_absolute() || path.extension().is_some() {
-        return path.to_path_buf();
-    }
-    let exe = format!("{program}.exe");
-    std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .map(|dir| dir.join(&exe))
-        .find(|candidate| candidate.is_file())
-        .or_else(|| dirs_local_bin(&exe))
-        .unwrap_or_else(|| path.to_path_buf())
-}
-
-fn dirs_local_bin(exe: &str) -> Option<PathBuf> {
-    let candidate = std::env::var_os("USERPROFILE").map(PathBuf::from)?.join(".local").join("bin").join(exe);
-    candidate.is_file().then_some(candidate)
 }
 
 fn pty_size(size: GridSize) -> PtySize {

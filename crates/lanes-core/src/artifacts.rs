@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use crate::config::{ArtifactDef, ArtifactType, BoardConfig};
-use crate::paths::{LanesHome, portable, write_atomic};
+use crate::paths::{LanesHome, write_atomic};
 use crate::timeline::{self, EventKind};
 
 pub struct ArtifactStore<'a> {
@@ -54,13 +54,12 @@ impl<'a> ArtifactStore<'a> {
     /// The file artifact stored at `path`, if any; used to attribute a session's direct file edits.
     pub fn file_artifact_at(&self, path: &Path) -> Option<&'a str> {
         let dir = self.home.artifacts_dir(self.ticket_id);
-        let same_dir = path.parent().is_some_and(|parent| same_path(parent, &dir));
-        let file_name = path.file_name()?.to_str()?;
+        let platform = crate::platform::current();
         self.config
             .artifacts
             .iter()
             .filter(|(_, def)| def.kind.is_file())
-            .find(|(name, def)| same_dir && def.file_name_for(name).eq_ignore_ascii_case(file_name))
+            .find(|(name, def)| platform.paths_equal(path, &dir.join(def.file_name_for(name))))
             .map(|(name, _)| name.as_str())
     }
 
@@ -112,11 +111,6 @@ impl<'a> ArtifactStore<'a> {
         values.insert(name.to_string(), content.trim().to_string());
         write_atomic(&self.home.artifact_values_file(self.ticket_id), toml::to_string_pretty(&values)?.as_bytes())
     }
-}
-
-fn same_path(a: &Path, b: &Path) -> bool {
-    let normalize = |p: &Path| portable(p).trim_end_matches('/').to_ascii_lowercase();
-    normalize(a) == normalize(b)
 }
 
 pub fn content_hash(content: &str) -> String {
@@ -172,7 +166,7 @@ id = "backlog"
         TicketStore::new(home.clone()).create(Some("T-1"), "t", "", "backlog").unwrap();
         let store = ArtifactStore::new(&home, &config, "T-1");
         let plan = home.artifacts_dir("T-1").join("PLAN.md");
-        let shouty = PathBuf::from(portable(&plan).replace('/', "\\").to_uppercase());
+        let shouty = PathBuf::from(crate::paths::portable(&plan).replace('/', "\\").to_uppercase());
 
         assert_eq!(store.file_artifact_at(&shouty), Some("plan"));
         assert_eq!(store.file_artifact_at(&home.artifacts_dir("T-1").join("branch.md")), None);

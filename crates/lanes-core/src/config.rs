@@ -32,7 +32,7 @@ pub struct Defaults {
     pub model: Option<String>,
     /// Default --effort for every session.
     pub effort: Option<String>,
-    /// Where sessions run: inside Lanes, or as Windows Terminal tabs.
+    /// Where sessions run: inside Lanes, or in an external terminal (Windows Terminal tabs on Windows).
     pub terminal: TerminalMode,
     /// With start = "prompt", briefs longer than this many characters are written to a file for Claude to read.
     pub kickoff_inline_limit: usize,
@@ -114,7 +114,7 @@ impl Default for Defaults {
 pub enum TerminalMode {
     /// Run sessions inside Lanes.
     Embedded,
-    /// Open each session as a Windows Terminal tab.
+    /// Open each session in an external terminal: a Windows Terminal tab, Terminal.app on macOS, or $TERMINAL on Linux.
     External,
 }
 
@@ -204,7 +204,7 @@ pub struct ColumnDef {
 pub struct ActionDef {
     /// Button label.
     pub label: String,
-    /// Command run through cmd.exe (template); use %USERPROFILE% rather than `~`.
+    /// Command run through the system shell, cmd.exe on Windows and sh elsewhere (template); `~` isn't expanded in it.
     pub command: String,
     /// Folder to run it in (template, `~` expanded); defaults to the ticket's session folder.
     pub cwd: Option<String>,

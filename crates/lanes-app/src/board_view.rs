@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::notification::Notification;
@@ -417,8 +417,10 @@ impl LanesApp {
     }
 
     fn spawn_external(&self, spec: &LaunchSpec) -> Result<()> {
+        let command = spec.external_terminal_command(&self.board.home, &self.board.lanes_exe);
+        let mut command = command.context("this platform has no external terminal; set terminal = \"embedded\" in board.toml")?;
         spec.save(&self.board.home)?;
-        spec.external_terminal_command(&self.board.home, &self.board.lanes_exe).spawn()?;
+        command.spawn().context("opening the external terminal")?;
         Ok(())
     }
 
@@ -528,8 +530,9 @@ fn type_draft_when_ready(terminal: Entity<TerminalView>, draft: String, cx: &mut
     .detach();
 }
 
-fn open_in_shell(path: &Path) {
-    let _ = std::process::Command::new("cmd").args(["/C", "start", ""]).arg(path).spawn();
+/// Opens a file in its default app, or a folder in the file manager.
+fn open_path(path: &Path) {
+    lanes_core::platform::current().open(path);
 }
 
 impl Render for LanesApp {
@@ -597,7 +600,7 @@ impl LanesApp {
             .child(Button::new("reload-config").label("Reload config").ghost().small().on_click(cx.listener(|this, _, window, cx| this.reload_config(window, cx))))
             .child({
                 let board_file = self.board.home.board_file();
-                Button::new("open-config").label("Edit board.toml").ghost().small().on_click(move |_, _, _| open_in_shell(&board_file))
+                Button::new("open-config").label("Edit board.toml").ghost().small().on_click(move |_, _, _| open_path(&board_file))
             })
             .child(
                 Button::new("quit")
@@ -1034,6 +1037,7 @@ impl LanesApp {
             })
             .when_some(ticket.session(&ticket.column).map(|r| r.cwd.clone()), |this, cwd| {
                 this.child(div().text_xs().text_color(cx.theme().muted_foreground).child(display_path(&cwd.display().to_string(), artifacts::PATH_DISPLAY_CHARS)))
+                    .child(Button::new("open-session-folder").label("Open folder").ghost().xsmall().on_click(move |_, _, _| open_path(&cwd)))
             })
     }
 

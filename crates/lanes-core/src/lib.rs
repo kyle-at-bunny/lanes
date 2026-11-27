@@ -13,6 +13,7 @@ pub mod dropped_paths;
 pub mod launch;
 pub mod link;
 pub mod paths;
+pub mod platform;
 pub mod pr_status;
 pub mod prompt;
 pub mod session;

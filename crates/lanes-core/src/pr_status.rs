@@ -323,18 +323,8 @@ impl PrCache {
     }
 }
 
-#[cfg(windows)]
 fn gh() -> Command {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = Command::new("gh");
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
-
-#[cfg(not(windows))]
-fn gh() -> Command {
-    Command::new("gh")
+    crate::platform::current().quiet_command("gh")
 }
 
 #[cfg(test)]

@@ -29,7 +29,7 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | `claude_path` | `"claude"` | Claude Code executable. A bare name is resolved to its `.exe` on `PATH` (or `~/.local/bin`). |
 | `model` | none | Default `--model` for every session (e.g. `"opus"`, `"sonnet"`). |
 | `effort` | none | Default `--effort` for every session. |
-| `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one as a Windows Terminal tab. |
+| `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one in an external terminal: a Windows Terminal tab, Terminal.app on macOS, or `$TERMINAL` (else `x-terminal-emulator`) on Linux. |
 | `start` | `"wait"` | How a new session starts. `"wait"` puts the ticket brief (title, description, work item link, inputs from earlier stages) into the system prompt and opens Claude on an empty input box, so you set the first task. `"prompt"` sends the brief as the first message, so Claude starts working straight away. Columns can override it. |
 | `kickoff_inline_limit` | `6000` | With `start = "prompt"`, briefs longer than this many characters are written to a file, and Claude is asked to read it. |
 | `theme` | `"system"` | `"system"`, `"light"` or `"dark"`. The top-bar button updates this. |
@@ -70,8 +70,8 @@ The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and
 
 - **Provenance:** each artifact shows who last wrote it and when, e.g. "written by Dev · 5m ago". `lanes artifact set` records the stage it ran in, and a session's own edits to a file artifact are recorded through its hooks. A file changed outside any session shows "updated … ago".
 - **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** for your editor. **HTML artifacts** show their size, with **Open in browser** (the program Windows opens `.html` files with, normally your default browser) and **Open folder**.
-- **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with **Open folder** / **VS Code** buttons, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
-- **Links:** URLs open in the browser, and local paths (`C:\…`, `\\server\…`, `~/…`) get **Open folder** / **VS Code** buttons.
+- **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with an **Open folder** button, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
+- **Links:** URLs open in the browser, and local paths (`C:\…` and `\\server\…` on Windows, `/…` elsewhere, and `~/…`) get **Open folder**, plus **Open** for files. Both use whatever program your OS has set for that file type.
 - **Pull request status:** pull request links (`https://<host>/<owner>/<repo>/pull/<n>`) in any artifact are checked with the [GitHub CLI](https://cli.github.com) (`gh pr view`), so `gh` must be installed and logged in. Each link gets a chip such as "open · checks failing", "draft" or "merged". While a PR is open it also gets its review decision ("review needed", "approved" or "changes requested") and a count of unresolved review comments, fetched with `gh api graphql`. The ticket panel lists every PR under the artifacts line as a short link (e.g. `app#12`) with the same chips. Cards get a row of chips under the title, like "2 PRs · 1 failing", "changes requested", "3 unresolved", which wrap on narrow cards and turn red for failing checks or requested changes, and **Finish & clean up** warns about PRs that are still open. Open PRs are rechecked every minute, merged and closed ones every 10 minutes. If `gh` fails, the link shows "status unavailable".
 
 ## `[[columns]]`
@@ -142,7 +142,7 @@ command = "git -C %USERPROFILE%/projects/my-app worktree add -b {{ ticket.id | l
 cwd = "~"
 ```
 
-Commands run through `cmd.exe`, so use `%USERPROFILE%` rather than `~` inside them. `~` is only expanded in `cwd` settings.
+Commands run through the system shell: `cmd.exe` on Windows (so use `%USERPROFILE%` rather than `~`), `sh` elsewhere. `~` in `cwd` settings is always expanded.
 
 ## Prompt templates
 
@@ -171,7 +171,7 @@ Implement the agreed plan on a dedicated branch. If review notes are present, ad
 
 ## Actions and cleanup commands
 
-Actions are buttons on the ticket panel. They run through `cmd.exe`, without a window, in the ticket's session folder for its current column. A notification shows the result and the last lines of output.
+Actions are buttons on the ticket panel. They run through the system shell (`cmd.exe` on Windows, `sh` elsewhere), without a window, in the ticket's session folder for its current column. A notification shows the result and the last lines of output.
 
 ```toml
 # Shown on every ticket
