@@ -43,8 +43,8 @@ lanes artifact get [--ticket <ID>] <name>             Print an artifact
 These are used by Claude Code and Lanes itself; you won't normally run them.
 
 ```text
-lanes hook          Records a Claude Code hook event (JSON on stdin) as session state
-lanes statusline    Records status-line JSON (context, plan limits); prints a status line or chains to yours
+lanes hook [--agent <agent>]        Records an agent hook event (JSON on stdin) as session state
+lanes statusline [--agent <agent>]  Records status-line JSON (context, plan limits); prints a status line or chains to yours
 lanes launch <uuid> Runs a prepared session in the current console (used by external terminal tabs)
 ```
 

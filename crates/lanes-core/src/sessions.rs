@@ -3,15 +3,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
+use crate::agent::{self, AgentKind, TranscriptSource};
 use crate::assistant;
 use crate::paths::LanesHome;
 use crate::state::{AgentStatus, StateStore};
 use crate::ticket::{Ticket, TicketStore};
-use crate::transcript;
 
-const DEFAULT_RETENTION_DAYS: u64 = 30;
-
-/// Who a Claude session created by Lanes belongs to.
+/// Who a session created by Lanes belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Owner {
     Ticket {
@@ -31,7 +29,9 @@ pub struct SessionInfo {
     pub cwd: Option<PathBuf>,
     pub last_active: u64,
     pub status: Option<AgentStatus>,
-    /// Claude Code's own transcript; Lanes reports it but never deletes it.
+    pub agent: AgentKind,
+    pub agent_session_id: String,
+    /// The agent's own transcript, when it keeps one as a file; Lanes reports it but never deletes it.
     pub transcript: Option<PathBuf>,
     pub transcript_bytes: u64,
 }
@@ -46,7 +46,7 @@ pub struct DeleteReport {
 pub fn inventory(home: &LanesHome) -> Result<Vec<SessionInfo>> {
     let mut sessions = linked_sessions(home)?;
     let known: Vec<Uuid> = sessions.iter().map(|s| s.id).collect();
-    sessions.extend(state_session_ids(home).into_iter().filter(|id| !known.contains(id)).map(|id| bare(id, Owner::Unlinked, None, 0)));
+    sessions.extend(state_session_ids(home).into_iter().filter(|id| !known.contains(id)).map(|id| bare(id, Owner::Unlinked, None, 0, AgentKind::Claude, id.to_string())));
     let states = StateStore::new(home.clone());
     for session in &mut sessions {
         enrich(home, &states, session);
@@ -88,16 +88,6 @@ pub fn delete_ticket(home: &LanesHome, ticket_id: &str) -> Result<DeleteReport> 
     Ok(DeleteReport { sessions, removed_state_files })
 }
 
-/// Claude Code's local transcript retention (`cleanupPeriodDays` in ~/.claude/settings.json).
-pub fn claude_retention_days() -> u64 {
-    let read = || -> Option<u64> {
-        let path = dirs::home_dir()?.join(".claude").join("settings.json");
-        let settings: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-        settings.get("cleanupPeriodDays")?.as_u64()
-    };
-    read().unwrap_or(DEFAULT_RETENTION_DAYS)
-}
-
 pub fn state_files(home: &LanesHome, session_id: &Uuid) -> Vec<PathBuf> {
     let state = home.state_dir();
     ["hook", "status", "settings", "launch"].iter().map(|kind| state.join(format!("{session_id}.{kind}.json"))).collect()
@@ -114,11 +104,11 @@ fn linked_sessions(home: &LanesHome) -> Result<Vec<SessionInfo>> {
     for (ticket, archived) in tickets {
         for (column, record) in &ticket.sessions {
             let owner = Owner::Ticket { ticket_id: ticket.id.clone(), column: column.clone(), archived };
-            sessions.push(bare(record.id, owner, Some(record.cwd.clone()), record.last_entered_at));
+            sessions.push(bare(record.id, owner, Some(record.cwd.clone()), record.last_entered_at, record.agent, record.agent_session_id()));
         }
     }
-    if let Some(id) = assistant::current_session(home) {
-        sessions.push(bare(id, Owner::Assistant, Some(home.root().to_path_buf()), 0));
+    if let Some((id, agent, agent_session_id)) = assistant::current(home) {
+        sessions.push(bare(id, Owner::Assistant, Some(home.root().to_path_buf()), 0, agent, agent_session_id));
     }
     Ok(sessions)
 }
@@ -129,8 +119,8 @@ fn state_session_ids(home: &LanesHome) -> Vec<Uuid> {
     entries.filter_map(Result::ok).filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".settings.json").and_then(|id| id.parse().ok())).collect()
 }
 
-fn bare(id: Uuid, owner: Owner, cwd: Option<PathBuf>, last_active: u64) -> SessionInfo {
-    SessionInfo { id, owner, cwd, last_active, status: None, transcript: None, transcript_bytes: 0 }
+fn bare(id: Uuid, owner: Owner, cwd: Option<PathBuf>, last_active: u64, agent: AgentKind, agent_session_id: String) -> SessionInfo {
+    SessionInfo { id, owner, cwd, last_active, status: None, agent, agent_session_id, transcript: None, transcript_bytes: 0 }
 }
 
 fn enrich(home: &LanesHome, states: &StateStore, session: &mut SessionInfo) {
@@ -141,7 +131,8 @@ fn enrich(home: &LanesHome, states: &StateStore, session: &mut SessionInfo) {
     session.last_active = [Some(session.last_active), hook.as_ref().map(|h| h.at), status_at, settings_at].into_iter().flatten().max().unwrap_or(0);
     let reported = hook.and_then(|h| h.transcript_path);
     let cwd = session.cwd.clone().unwrap_or_default();
-    session.transcript = transcript::locate(&session.id, &cwd, reported.as_deref());
+    let source = TranscriptSource { agent_session_id: &session.agent_session_id, cwd: &cwd, reported_path: reported.as_deref() };
+    session.transcript = agent::get(session.agent).transcript_file(&source);
     session.transcript_bytes = session.transcript.as_deref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()).unwrap_or(0);
 }
 

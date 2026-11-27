@@ -21,12 +21,30 @@ pub struct BoardConfig {
     /// Actions shown on every ticket, in addition to its column's own.
     #[serde(default)]
     pub actions: Vec<ActionDef>,
+    /// Per-agent settings, e.g. [agents.claude] path = "claude".
+    #[serde(default)]
+    pub agents: AgentsConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(default)]
+pub struct AgentsConfig {
+    pub claude: AgentConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(default)]
+pub struct AgentConfig {
+    /// The executable; a bare name is looked up on PATH (and ~/.local/bin).
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
 pub struct Defaults {
-    /// Claude Code executable; a bare name is resolved to its .exe on PATH (or ~/.local/bin).
+    /// Which agent CLI runs new sessions. Existing sessions keep the agent that created them.
+    pub agent: crate::agent::AgentKind,
+    /// Claude Code executable; same as [agents.claude] path, which wins when both are set.
     pub claude_path: String,
     /// Default --model for every session, e.g. "opus" or "sonnet".
     pub model: Option<String>,
@@ -98,6 +116,7 @@ pub enum TerminalTheme {
 impl Default for Defaults {
     fn default() -> Self {
         Self {
+            agent: crate::agent::AgentKind::Claude,
             claude_path: "claude".into(),
             model: None,
             effort: None,
@@ -252,6 +271,14 @@ impl<'a> ArtifactRef<'a> {
 }
 
 impl BoardConfig {
+    /// The program that runs `kind` sessions: its [agents] path, else (for Claude) claude_path, else the agent's default.
+    pub fn agent_program(&self, kind: crate::agent::AgentKind) -> String {
+        let configured = match kind {
+            crate::agent::AgentKind::Claude => self.agents.claude.path.clone().or_else(|| Some(self.defaults.claude_path.clone())),
+        };
+        configured.filter(|p| !p.trim().is_empty()).unwrap_or_else(|| crate::agent::get(kind).default_program().to_string())
+    }
+
     pub fn load_or_init(home: &LanesHome) -> Result<Self> {
         if !home.board_file().exists() {
             defaults::write_starter_board(home)?;
@@ -368,6 +395,32 @@ produces = ["branch"]
 type = "file"
 path = "review-notes.md"
 "#;
+
+    #[test]
+    fn agent_program_prefers_agents_path_then_claude_path() {
+        let claude = crate::agent::AgentKind::Claude;
+        let base = "[[columns]]
+id = \"a\"
+";
+        assert_eq!(BoardConfig::parse(base).unwrap().agent_program(claude), "claude");
+        let legacy = BoardConfig::parse(&format!(
+            "[defaults]
+claude_path = \"C:/bin/claude.exe\"
+{base}"
+        ))
+        .unwrap();
+        assert_eq!(legacy.agent_program(claude), "C:/bin/claude.exe");
+        let both = BoardConfig::parse(&format!(
+            "[defaults]
+claude_path = \"old\"
+[agents.claude]
+path = \"new\"
+{base}"
+        ))
+        .unwrap();
+        assert_eq!(both.agent_program(claude), "new");
+        assert_eq!(both.defaults.agent, claude);
+    }
 
     #[test]
     fn parses_columns_and_artifacts() {

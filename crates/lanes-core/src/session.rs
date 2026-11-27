@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use serde_json::json;
 use uuid::Uuid;
 
+use crate::agent::{self, AgentCli, AgentKind, LaunchRequest};
 use crate::artifacts::ArtifactStore;
 use crate::config::{BoardConfig, ColumnDef, StartMode, TerminalMode};
 use crate::paths::{COLUMN_ENV, HOME_ENV, LanesHome, TICKET_ENV, expand_tilde, now_unix, portable, write_atomic};
@@ -27,9 +27,14 @@ pub struct LaunchSpec {
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
     pub title: String,
-    /// Text to type into Claude's input box without sending it, once the session is ready.
+    /// Text to type into the agent's input box without sending it, once the session is ready.
     #[serde(default)]
     pub draft: Option<String>,
+    #[serde(default)]
+    pub agent: AgentKind,
+    /// The agent's own id for the session, when it differs from `session_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
 }
 
 pub struct SessionLauncher<'a> {
@@ -60,7 +65,22 @@ impl SessionLauncher<'_> {
     }
 
     fn new_spec(&self, ticket: &Ticket, column: &ColumnDef) -> Result<LaunchSpec> {
+        let agent = agent::get(self.config.defaults.agent);
         let session_id = Uuid::new_v4();
+        let agent_session_id = agent.new_session_id(session_id);
+        let cwd = self.new_session_cwd(ticket, column)?;
+        let mode = column.start_mode(&self.config.defaults);
+        let system_file = self.write_session_file(ticket, column, "system.md", &self.new_system_prompt(ticket, column, mode)?)?;
+        let initial_prompt = match mode {
+            StartMode::Prompt => Some(self.kickoff_argument(ticket, column)?),
+            StartMode::Wait => None,
+        };
+        let request = self.request(column, session_id, &agent_session_id, false, Some(&system_file), initial_prompt);
+        let args = agent.launch_args(&request)?;
+        Ok(self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd))
+    }
+
+    fn new_session_cwd(&self, ticket: &Ticket, column: &ColumnDef) -> Result<PathBuf> {
         let cwd = workdir::resolve(ticket, column)?.unwrap_or_else(|| expand_tilde("~"));
         ensure!(
             cwd.is_dir(),
@@ -69,14 +89,7 @@ impl SessionLauncher<'_> {
             ticket.id,
             column.title()
         );
-        let mode = column.start_mode(&self.config.defaults);
-        let system_file = self.write_session_file(ticket, column, "system.md", &self.new_system_prompt(ticket, column, mode)?)?;
-        let mut args = vec!["--session-id".into(), session_id.to_string(), "--append-system-prompt-file".into(), portable(&system_file)];
-        args.extend(self.common_args(column, &session_id)?);
-        if mode == StartMode::Prompt {
-            args.push(self.kickoff_argument(ticket, column)?);
-        }
-        Ok(self.spec(ticket, column, session_id, LaunchKind::New, args, cwd))
+        Ok(cwd)
     }
 
     fn new_system_prompt(&self, ticket: &Ticket, column: &ColumnDef, mode: StartMode) -> Result<String> {
@@ -88,59 +101,82 @@ impl SessionLauncher<'_> {
     }
 
     fn resume_spec(&self, ticket: &Ticket, column: &ColumnDef, record: &SessionRecord) -> Result<LaunchSpec> {
-        let mut args = vec!["--resume".into(), record.id.to_string()];
-        args.extend(self.common_args(column, &record.id)?);
-        let changed = self.changed_inputs(ticket, column, record)?;
-        let message = match changed.is_empty() {
-            true => None,
-            false => Some(self.prompts(ticket, column).reentry(ticket.last_arrival_from(), &changed)?),
+        let agent = agent::get(record.agent);
+        let agent_session_id = record.agent_session_id();
+        let (draft, initial_prompt) = match self.reentry_message(ticket, column, record)? {
+            Some(message) if self.can_draft(column) => (Some(message), None),
+            message => (None, message),
         };
-        let mut spec = self.spec(ticket, column, record.id, LaunchKind::Resume, args, record.cwd.clone());
-        if let Some(message) = message {
-            self.deliver_reentry(&mut spec, column, message);
-        }
+        let request = self.request(column, record.id, &agent_session_id, true, None, initial_prompt);
+        let args = agent.launch_args(&request)?;
+        let mut spec = self.spec(ticket, column, agent, record.id, agent_session_id, LaunchKind::Resume, args, record.cwd.clone());
+        spec.draft = draft;
         Ok(spec)
     }
 
-    /// Wait mode leaves the note as an editable draft; an external terminal can't be typed into, so it is sent instead.
-    fn deliver_reentry(&self, spec: &mut LaunchSpec, column: &ColumnDef, message: String) {
-        let can_type = self.config.defaults.terminal == TerminalMode::Embedded;
-        match column.start_mode(&self.config.defaults) {
-            StartMode::Wait if can_type => spec.draft = Some(message),
-            _ => spec.args.push(message),
+    fn reentry_message(&self, ticket: &Ticket, column: &ColumnDef, record: &SessionRecord) -> Result<Option<String>> {
+        let changed = self.changed_inputs(ticket, column, record)?;
+        if changed.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(self.prompts(ticket, column).reentry(ticket.last_arrival_from(), &changed)?))
+    }
+
+    /// Wait mode leaves a re-entry note as an editable draft; an external terminal can't be typed into, so it is sent instead.
+    fn can_draft(&self, column: &ColumnDef) -> bool {
+        self.config.defaults.terminal == TerminalMode::Embedded && column.start_mode(&self.config.defaults) == StartMode::Wait
+    }
+
+    /// Stage settings are passed on every launch, since agents don't all keep them with a resumed session.
+    fn request<'r>(
+        &'r self,
+        column: &'r ColumnDef,
+        session_id: Uuid,
+        agent_session_id: &'r str,
+        resume: bool,
+        system_prompt_file: Option<&'r Path>,
+        initial_prompt: Option<String>,
+    ) -> LaunchRequest<'r> {
+        let defaults = &self.config.defaults;
+        LaunchRequest {
+            home: self.home,
+            lanes_exe: self.lanes_exe,
+            session_id,
+            agent_session_id,
+            resume,
+            system_prompt_file,
+            initial_prompt,
+            model: column.model.as_deref().or(defaults.model.as_deref()),
+            effort: column.effort.as_deref().or(defaults.effort.as_deref()),
+            permission_mode: column.permission_mode.as_deref(),
+            extra_args: &column.extra_args,
         }
     }
 
-    fn spec(&self, ticket: &Ticket, column: &ColumnDef, session_id: Uuid, kind: LaunchKind, args: Vec<String>, cwd: PathBuf) -> LaunchSpec {
+    #[allow(clippy::too_many_arguments)]
+    fn spec(
+        &self,
+        ticket: &Ticket,
+        column: &ColumnDef,
+        agent: &dyn AgentCli,
+        session_id: Uuid,
+        agent_session_id: String,
+        kind: LaunchKind,
+        args: Vec<String>,
+        cwd: PathBuf,
+    ) -> LaunchSpec {
         LaunchSpec {
             session_id,
             kind,
-            program: self.config.defaults.claude_path.clone(),
+            program: self.config.agent_program(agent.kind()),
             args,
             cwd,
             env: vec![(HOME_ENV.into(), self.home.root().to_string_lossy().into_owned()), (TICKET_ENV.into(), ticket.id.clone()), (COLUMN_ENV.into(), column.id.clone())],
             title: format!("{} · {}", ticket.id, column.title()),
             draft: None,
+            agent: agent.kind(),
+            agent_session_id: (agent_session_id != session_id.to_string()).then_some(agent_session_id),
         }
-    }
-
-    /// Flags that are not persisted with a session, so they are passed on every launch.
-    fn common_args(&self, column: &ColumnDef, session_id: &Uuid) -> Result<Vec<String>> {
-        let settings = write_session_settings(self.home, session_id, self.lanes_exe)?;
-        let mut args = vec!["--settings".into(), portable(&settings)];
-        let defaults = &self.config.defaults;
-        let optional = [
-            ("--model", column.model.as_ref().or(defaults.model.as_ref())),
-            ("--effort", column.effort.as_ref().or(defaults.effort.as_ref())),
-            ("--permission-mode", column.permission_mode.as_ref()),
-        ];
-        for (flag, value) in optional {
-            if let Some(value) = value {
-                args.extend([flag.to_string(), value.clone()]);
-            }
-        }
-        args.extend(column.extra_args.iter().cloned());
-        Ok(args)
     }
 
     fn kickoff_argument(&self, ticket: &Ticket, column: &ColumnDef) -> Result<String> {
@@ -174,6 +210,8 @@ impl SessionLauncher<'_> {
             created_at: now,
             last_entered_at: now,
             input_hashes: Default::default(),
+            agent: spec.agent,
+            agent_session_id: spec.agent_session_id.clone(),
         });
         record.last_entered_at = now;
         record.input_hashes = input_hashes;
@@ -189,22 +227,6 @@ impl SessionLauncher<'_> {
         write_atomic(&path, contents.as_bytes())?;
         Ok(path)
     }
-}
-
-const HOOK_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionEnd"];
-
-/// Per-session settings injected with `--settings`: state hooks plus the status line feed.
-pub fn write_session_settings(home: &LanesHome, session_id: &Uuid, lanes_exe: &Path) -> Result<PathBuf> {
-    let base = lanes_command(lanes_exe, home);
-    let hook = json!([{ "hooks": [{ "type": "command", "command": format!("{base} hook"), "timeout": 10 }] }]);
-    let hooks: serde_json::Map<_, _> = HOOK_EVENTS.iter().map(|event| (event.to_string(), hook.clone())).collect();
-    let settings = json!({
-        "hooks": hooks,
-        "statusLine": { "type": "command", "command": format!("{base} statusline"), "padding": 0 },
-    });
-    let path = home.session_settings_file(session_id);
-    write_atomic(&path, serde_json::to_string_pretty(&settings)?.as_bytes())?;
-    Ok(path)
 }
 
 pub fn lanes_command(lanes_exe: &Path, home: &LanesHome) -> String {

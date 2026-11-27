@@ -12,6 +12,7 @@ use gpui_kit::component::{ActiveTheme, IconName, Sizable, Theme, ThemeMode, Wind
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use lanes_core::actions::{self, ActionOutcome};
+use lanes_core::agent::{self, AgentKind, TranscriptSource};
 use lanes_core::artifact_view::display_path;
 use lanes_core::board::Board;
 use lanes_core::cleanup::CleanupPlan;
@@ -22,7 +23,7 @@ use lanes_core::session::LaunchSpec;
 use lanes_core::state::{AgentStatus, Limit};
 use lanes_core::ticket::Ticket;
 use lanes_core::timeline::{self, EventKind};
-use lanes_core::transcript::{self, Speaker, TranscriptEntry};
+use lanes_core::transcript::{Speaker, TranscriptEntry};
 use uuid::Uuid;
 
 mod archive;
@@ -82,6 +83,7 @@ struct LoadedTranscript {
     ticket_id: String,
     column_id: String,
     session_id: Uuid,
+    agent: AgentKind,
     entries: Vec<TranscriptEntry>,
 }
 
@@ -109,6 +111,8 @@ enum CardSession {
     NotStarted,
     Parked,
     Live(Option<AgentStatus>),
+    /// Running, but its agent doesn't report working / needs input / your turn.
+    LiveUntracked,
 }
 
 pub struct LanesApp {
@@ -222,8 +226,10 @@ impl LanesApp {
     fn load_transcript(&mut self, ticket_id: &str, column_id: &str, cx: &mut Context<Self>) {
         self.transcript = self.ticket(ticket_id).and_then(|ticket| ticket.session(column_id)).map(|record| {
             let reported = self.board.states.hook(&record.id).and_then(|h| h.transcript_path);
-            let entries = transcript::locate(&record.id, &record.cwd, reported.as_deref()).map(|path| transcript::load(&path)).unwrap_or_default();
-            LoadedTranscript { ticket_id: ticket_id.to_string(), column_id: column_id.to_string(), session_id: record.id, entries }
+            let agent_session_id = record.agent_session_id();
+            let source = TranscriptSource { agent_session_id: &agent_session_id, cwd: &record.cwd, reported_path: reported.as_deref() };
+            let entries = agent::get(record.agent).read_transcript(&source);
+            LoadedTranscript { ticket_id: ticket_id.to_string(), column_id: column_id.to_string(), session_id: record.id, agent: record.agent, entries }
         });
         cx.notify();
     }
@@ -451,8 +457,10 @@ impl LanesApp {
             return if has_session { CardSession::NotStarted } else { CardSession::None };
         };
         let hook = self.board.states.hook(&record.id).map(|h| h.status);
+        let tracked = agent::get(record.agent).capabilities().live_state;
         match self.terminals.get(&record.id) {
             Some(terminal) if terminal.read(cx).session.has_exited() => CardSession::Parked,
+            Some(_) if !tracked => CardSession::LiveUntracked,
             Some(_) => CardSession::Live(hook),
             None if self.board.config.defaults.terminal == TerminalMode::External && hook.is_some_and(|s| s != AgentStatus::Exited) => CardSession::Live(hook),
             None => CardSession::Parked,
@@ -576,7 +584,7 @@ impl LanesApp {
             .child(div().font_weight(FontWeight::BOLD).child("Lanes"))
             .child(Button::new("new-ticket").label("New ticket").primary().small().on_click(cx.listener(|this, _, window, cx| this.show_new_ticket(window, cx))))
             .child({
-                let button = Button::new("assistant").label("Assistant").small().tooltip("A Claude session that can operate and reconfigure this board");
+                let button = Button::new("assistant").label("Assistant").small().tooltip("An agent session that can operate and reconfigure this board");
                 let button = if self.show_assistant { button.primary() } else { button.outline() };
                 button.on_click(cx.listener(|this, _, window, cx| this.toggle_assistant(window, cx)))
             })
@@ -961,6 +969,11 @@ impl LanesApp {
         let body: AnyElement = match loaded {
             None if pickers.is_empty() => div().text_sm().text_color(theme.muted_foreground).child("This ticket has no sessions yet.").into_any_element(),
             None => div().text_sm().text_color(theme.muted_foreground).child("Pick a stage to read its transcript.").into_any_element(),
+            Some(loaded) if !agent::get(loaded.agent).capabilities().transcript => div()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child(format!("Transcripts aren't available for {} sessions.", agent::get(loaded.agent).display_name()))
+                .into_any_element(),
             Some(loaded) if loaded.entries.is_empty() => {
                 div().text_sm().text_color(theme.muted_foreground).child("No transcript found for this session yet.").into_any_element()
             }
@@ -973,7 +986,7 @@ impl LanesApp {
                         .map(|entry| {
                             let (label, color) = match entry.speaker {
                                 Speaker::User => ("You", theme.primary),
-                                Speaker::Assistant => ("Claude", theme.success),
+                                Speaker::Assistant => (agent::get(loaded.agent).display_name(), theme.success),
                                 Speaker::Tool => ("Tool", theme.muted_foreground),
                             };
                             v_flex()
@@ -1089,6 +1102,7 @@ fn session_tag(session: &CardSession, cx: &App) -> AnyElement {
         CardSession::NotStarted => Tag::secondary().xsmall().outline().child("not started").into_any_element(),
         CardSession::Parked => Tag::secondary().xsmall().child("parked").into_any_element(),
         CardSession::Live(None) => solid_tag(theme.info, theme.info_foreground, "starting"),
+        CardSession::LiveUntracked => solid_tag(theme.info, theme.info_foreground, "running"),
         CardSession::Live(Some(status)) => match status {
             AgentStatus::Working => solid_tag(theme.primary, theme.primary_foreground, status.label()),
             AgentStatus::NeedsInput => solid_tag(theme.warning, theme.warning_foreground, status.label()),

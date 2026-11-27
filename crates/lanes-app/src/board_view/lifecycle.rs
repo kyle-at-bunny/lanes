@@ -101,7 +101,7 @@ impl LanesApp {
     pub(super) fn render_quit_confirm(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let running = self.quit_confirm?;
         let noun = if running == 1 { "session is" } else { "sessions are" };
-        let message = format!("Claude is working in {running} {noun}. Quitting interrupts it; you can resume from the ticket's card later.");
+        let message = format!("An agent is working in {running} {noun}. Quitting interrupts it; you can resume from the ticket's card later.");
         Some(
             h_flex()
                 .px_3()

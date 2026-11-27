@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::agent::AgentKind;
 use crate::link::TicketLink;
 use crate::paths::{LanesHome, now_unix, write_atomic};
 use crate::timeline::{self, EventKind};
@@ -48,6 +49,18 @@ pub struct SessionRecord {
     /// Content hash of each consumed artifact when the session last ran, to detect changes on re-entry.
     #[serde(default)]
     pub input_hashes: BTreeMap<String, String>,
+    /// The CLI that runs this session; a resume always uses the one that created it.
+    #[serde(default)]
+    pub agent: AgentKind,
+    /// The agent's own id for the session, when it differs from `id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
+}
+
+impl SessionRecord {
+    pub fn agent_session_id(&self) -> String {
+        self.agent_session_id.clone().unwrap_or_else(|| self.id.to_string())
+    }
 }
 
 impl Ticket {
@@ -227,6 +240,21 @@ fn load_ticket(path: &std::path::Path) -> Result<Ticket> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sessions_without_an_agent_load_as_claude_with_their_own_id() {
+        let record: SessionRecord = toml::from_str(
+            "id = \"6f0c9d3c-8f6b-4d7f-9a43-2b7c5a0e1f11\"
+cwd = \"C:/w\"
+created_at = 1
+last_entered_at = 2
+",
+        )
+        .unwrap();
+        assert_eq!(record.agent, AgentKind::Claude);
+        assert_eq!(record.agent_session_id(), "6f0c9d3c-8f6b-4d7f-9a43-2b7c5a0e1f11");
+        assert!(!toml::to_string(&record).unwrap().contains("agent_session_id"));
+    }
 
     #[test]
     fn folder_overrides_round_trip_through_ticket_toml() {

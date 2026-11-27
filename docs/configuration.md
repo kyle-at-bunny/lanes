@@ -19,6 +19,7 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 - [`[artifacts.<name>]`](#artifacts)
 - [`[[columns]]`](#columns)
 - [Prompt templates](#prompt-templates)
+- [Agents](#agents)
 - [Actions and cleanup commands](#actions-and-cleanup-commands)
 - [Work item links](#work-item-links)
 
@@ -26,7 +27,8 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `claude_path` | `"claude"` | Claude Code executable. A bare name is resolved to its `.exe` on `PATH` (or `~/.local/bin`). |
+| `agent` | `"claude"` | The coding agent CLI that runs new sessions. Sessions that already exist keep the agent that created them. See [Agents](#agents). |
+| `claude_path` | `"claude"` | Claude Code executable; `[agents.claude] path` does the same and wins when both are set. A bare name is looked up on `PATH` (or `~/.local/bin`). |
 | `model` | none | Default `--model` for every session (e.g. `"opus"`, `"sonnet"`). |
 | `effort` | none | Default `--effort` for every session. |
 | `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one in an external terminal: a Windows Terminal tab, Terminal.app on macOS, or `$TERMINAL` (else `x-terminal-emulator`) on Linux. |
@@ -74,6 +76,23 @@ The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and
 - **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with an **Open folder** button, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
 - **Links:** URLs open in the browser, and local paths (`C:\…` and `\\server\…` on Windows, `/…` elsewhere, and `~/…`) get **Open folder**, plus **Open** for files. Both use whatever program your OS has set for that file type.
 - **Pull request status:** with `pr_provider = "github"` (the default), pull request links (`https://<host>/<owner>/<repo>/pull/<n>`) in any artifact are checked with the [GitHub CLI](https://cli.github.com) (`gh pr view`), so `gh` must be installed and logged in. Set `pr_provider = "none"` to turn this off. Each link gets a chip such as "open · checks failing", "draft" or "merged". While a PR is open it also gets its review decision ("review needed", "approved" or "changes requested") and a count of unresolved review comments, fetched with `gh api graphql`. The ticket panel lists every PR under the artifacts line as a short link (e.g. `app#12`) with the same chips. Cards get a row of chips under the title, like "2 PRs · 1 failing", "changes requested", "3 unresolved", which wrap on narrow cards and turn red for failing checks or requested changes, and **Finish & clean up** warns about PRs that are still open. Open PRs are rechecked every minute, merged and closed ones every 10 minutes. If `gh` fails, the link shows "status unavailable".
+
+## Agents
+
+Each session runs a coding agent CLI in a terminal. `[defaults] agent` picks which one runs new sessions; the board assistant uses it too. Changing it doesn't affect existing sessions: a stage that already has a session always resumes it with the agent that created it.
+
+| Agent | `agent` | Live status (working / needs input) | Context and plan usage | Transcript tab |
+| --- | --- | --- | --- | --- |
+| Claude Code | `"claude"` | yes, from hooks | yes, from the status line | yes |
+
+Set an agent's executable under `[agents.<agent>]`:
+
+```toml
+[agents.claude]
+path = "C:/tools/claude.exe"
+```
+
+`model`, `effort`, `permission_mode` and `extra_args` are passed in the agent's own form. [docs/agents.md](agents.md) explains how to add another agent.
 
 ## `[[columns]]`
 

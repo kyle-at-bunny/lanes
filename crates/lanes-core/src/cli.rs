@@ -1,20 +1,20 @@
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, Stdio};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde_json::Value;
 
+use crate::agent::{self, AgentKind};
 use crate::artifacts::ArtifactStore;
 use crate::board_cli::{self, ConfigAction, TicketAction};
 use crate::config::BoardConfig;
-use crate::paths::{COLUMN_ENV, LanesHome, TICKET_ENV, now_unix};
+use crate::paths::{COLUMN_ENV, LanesHome, TICKET_ENV};
 use crate::session::LaunchSpec;
-use crate::state::{StateStore, StatusSnapshot, edited_file, hook_state, session_id_of, status_snapshot};
+use crate::state::StateStore;
 
 #[derive(Debug, Parser)]
-#[command(name = "lanes", about = "Kanban board for interactive Claude Code sessions")]
+#[command(name = "lanes", about = "Kanban board for interactive coding agent sessions")]
 pub struct Cli {
     /// Board directory (defaults to $LANES_HOME or ~/.lanes).
     #[arg(long, global = true)]
@@ -25,10 +25,17 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Record a Claude Code hook event (hook JSON on stdin).
-    Hook,
-    /// Claude Code status line command (status JSON on stdin).
-    Statusline,
+    /// Record an agent hook event (the agent's hook JSON on stdin).
+    Hook {
+        /// Which agent sent it.
+        #[arg(long, value_enum, default_value_t = AgentKind::Claude)]
+        agent: AgentKind,
+    },
+    /// Status line command for agents that have one (status JSON on stdin).
+    Statusline {
+        #[arg(long, value_enum, default_value_t = AgentKind::Claude)]
+        agent: AgentKind,
+    },
     /// Read or write a ticket artifact.
     Artifact {
         #[command(subcommand)]
@@ -80,14 +87,14 @@ impl Cli {
 pub fn run(cli: &Cli, command: &Command) -> Result<()> {
     let home = cli.lanes_home()?;
     match command {
-        Command::Hook => {
-            if let Err(err) = record_hook(&home) {
+        Command::Hook { agent } => {
+            if let Err(err) = record_hook(&home, *agent) {
                 eprintln!("lanes hook: {err:#}");
             }
             Ok(())
         }
-        Command::Statusline => {
-            if let Err(err) = status_line(&home) {
+        Command::Statusline { agent } => {
+            if let Err(err) = status_line(&home, *agent) {
                 eprintln!("lanes statusline: {err:#}");
             }
             Ok(())
@@ -100,18 +107,19 @@ pub fn run(cli: &Cli, command: &Command) -> Result<()> {
     }
 }
 
-fn record_hook(home: &LanesHome) -> Result<()> {
+fn record_hook(home: &LanesHome, kind: AgentKind) -> Result<()> {
     let input = read_stdin_json()?;
-    record_artifact_edit(home, &input)?;
-    let (Some(session_id), Some(state)) = (session_id_of(&input), hook_state(&input)) else {
+    let agent = agent::get(kind);
+    record_artifact_edit(home, agent.edited_file(&input))?;
+    let Some((session_id, state)) = agent.parse_hook(&input) else {
         return Ok(());
     };
     StateStore::new(home.clone()).write_hook(&session_id, &state)
 }
 
 /// Attributes a session's direct edit of an artifact file to its stage.
-fn record_artifact_edit(home: &LanesHome, input: &Value) -> Result<()> {
-    let (Some(path), Ok(ticket)) = (edited_file(input), std::env::var(TICKET_ENV)) else {
+fn record_artifact_edit(home: &LanesHome, edited: Option<&str>) -> Result<()> {
+    let (Some(path), Ok(ticket)) = (edited, std::env::var(TICKET_ENV)) else {
         return Ok(());
     };
     let config = BoardConfig::load(home)?;
@@ -120,50 +128,20 @@ fn record_artifact_edit(home: &LanesHome, input: &Value) -> Result<()> {
     Ok(())
 }
 
-fn status_line(home: &LanesHome) -> Result<()> {
+fn status_line(home: &LanesHome, kind: AgentKind) -> Result<()> {
     let raw = read_stdin()?;
-    let input: Value = serde_json::from_str(&raw)?;
-    let snapshot = status_snapshot(&input);
-    if let Some(session_id) = session_id_of(&input) {
-        StateStore::new(home.clone()).write_status(&session_id, &snapshot)?;
-    }
-    let line = match user_status_line_command() {
-        Some(command) => run_user_status_line(&command, &raw).unwrap_or_else(|_| default_status_line(&snapshot)),
-        None => default_status_line(&snapshot),
+    let agent = agent::get(kind);
+    let Some((session_id, snapshot)) = agent.parse_status_line(&serde_json::from_str(&raw)?) else {
+        return Ok(());
     };
-    print!("{line}");
+    StateStore::new(home.clone()).write_status(&session_id, &snapshot)?;
+    print!("{}", agent.status_line_text(&raw, &snapshot));
     Ok(())
-}
-
-fn default_status_line(snapshot: &StatusSnapshot) -> String {
-    let mut parts = vec![snapshot.model.clone().unwrap_or_else(|| "claude".into())];
-    if let Some(ctx) = snapshot.context_used_pct {
-        parts.push(format!("ctx {ctx:.0}%"));
-    }
-    if let Some(limit) = snapshot.five_hour {
-        let reset = limit.resets_at.map(|at| format!(" (resets in {})", format_duration(at.saturating_sub(now_unix())))).unwrap_or_default();
-        parts.push(format!("5h {:.0}%{reset}", limit.used_pct));
-    }
-    parts.join(" · ")
 }
 
 pub fn format_duration(seconds: u64) -> String {
     let (hours, minutes) = (seconds / 3600, (seconds % 3600) / 60);
     if hours > 0 { format!("{hours}h{minutes:02}m") } else { format!("{minutes}m") }
-}
-
-/// The user's own status line command from ~/.claude/settings.json, so lanes chains to it instead of replacing it.
-fn user_status_line_command() -> Option<String> {
-    let path = dirs::home_dir()?.join(".claude").join("settings.json");
-    let settings: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    settings.pointer("/statusLine/command")?.as_str().map(str::to_string)
-}
-
-fn run_user_status_line(command: &str, input: &str) -> Result<String> {
-    let mut child = Process::new("bash").args(["-c", command]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
-    child.stdin.take().context("no stdin")?.write_all(input.as_bytes())?;
-    let output = child.wait_with_output()?;
-    Ok(String::from_utf8_lossy(&output.stdout).trim_end().to_string())
 }
 
 fn artifact(home: &LanesHome, action: &ArtifactAction) -> Result<()> {

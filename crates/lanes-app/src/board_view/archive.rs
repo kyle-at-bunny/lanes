@@ -173,6 +173,6 @@ fn describe_plan(plan: &CleanupPlan) -> Vec<AnyElement> {
     lines.push(format!("• stop the ticket's running sessions ({sessions} recorded) and remove {files}"));
     lines.extend(plan.commands.iter().map(|c| format!("• run {}: {}", c.label, c.command)));
     lines.push("• move the ticket to the archive (artifacts and timeline are kept; you can restore it)".into());
-    lines.push("• leave Claude Code's own session data alone (it expires under Claude's retention setting)".into());
+    lines.push("• leave the agent's own session data alone (it expires under the agent's own retention setting)".into());
     lines.into_iter().map(|line| div().child(line).into_any_element()).collect()
 }

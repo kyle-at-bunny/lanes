@@ -116,7 +116,7 @@ impl LanesApp {
                 .gap_3()
                 .bg(cx.theme().danger.opacity(0.15))
                 .child(div().flex_1().min_w_0().child(format!(
-                    "Delete {ticket_id}? This stops its sessions, and permanently removes the ticket, its artifacts and timeline, and Lanes' records of its {sessions} session(s). Claude Code keeps its own copy of the conversations."
+                    "Delete {ticket_id}? This stops its sessions, and permanently removes the ticket, its artifacts and timeline, and Lanes' records of its {sessions} session(s). The agent keeps its own copy of the conversations."
                 )))
                 .child(Button::new("confirm-delete").label("Delete ticket").danger().small().on_click(cx.listener(|this, _, window, cx| {
                     this.confirm_delete_ticket(window, cx)
@@ -172,7 +172,7 @@ impl LanesApp {
                 h_flex()
                     .flex_wrap()
                     .gap_2()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Claude sessions created by Lanes"))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Agent sessions created by Lanes"))
                     .child(div().flex_1())
                     .child(Button::new("sessions-refresh").label("Refresh").ghost().small().on_click(cx.listener(|this, _, window, cx| {
                         this.reload_sessions(window, cx);
@@ -180,15 +180,16 @@ impl LanesApp {
                     })))
                     .when(!unlinked.is_empty(), |this| {
                         let count = unlinked.len();
-                        this.child(Button::new("forget-unlinked").label(format!("Forget all unlinked ({count})")).outline().small().on_click(cx.listener(
-                            move |this, _, window, cx| this.forget_sessions(unlinked.clone(), window, cx),
-                        )))
+                        this.child(
+                            Button::new("forget-unlinked")
+                                .label(format!("Forget all unlinked ({count})"))
+                                .outline()
+                                .small()
+                                .on_click(cx.listener(move |this, _, window, cx| this.forget_sessions(unlinked.clone(), window, cx))),
+                        )
                     }),
             )
-            .child(div().text_xs().text_color(theme.muted_foreground).child(format!(
-                "Forget stops a session and removes Lanes' link to it; a ticket's stage then starts fresh next time. Claude Code keeps its own copy of each conversation and deletes it after {} days (cleanupPeriodDays).",
-                sessions::claude_retention_days()
-            )))
+            .child(div().text_xs().text_color(theme.muted_foreground).child(retention_note(self.board.config.defaults.agent)))
             .when(empty, |this| this.child(div().text_sm().text_color(theme.muted_foreground).child("No sessions yet.")))
             .children(rows)
     }
@@ -255,4 +256,13 @@ impl LanesApp {
             )
             .into_any_element()
     }
+}
+
+fn retention_note(kind: lanes_core::agent::AgentKind) -> String {
+    let agent = lanes_core::agent::get(kind);
+    let keeps = match agent.retention_days() {
+        Some(days) => format!("{} keeps its own copy of each conversation and deletes it after {days} days.", agent.display_name()),
+        None => format!("{} keeps its own copy of each conversation.", agent.display_name()),
+    };
+    format!("Forget stops a session and removes Lanes' link to it; a ticket's stage then starts fresh next time. {keeps}")
 }

@@ -5,9 +5,10 @@ use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::agent::{self, AgentKind, LaunchRequest};
 use crate::config::BoardConfig;
 use crate::paths::{HOME_ENV, LanesHome, portable, write_atomic};
-use crate::session::{LaunchKind, LaunchSpec, lanes_command, write_session_settings};
+use crate::session::{LaunchKind, LaunchSpec, lanes_command};
 
 pub const PROMPT_FILE: &str = "prompts/assistant.md";
 const DEFAULT_PROMPT: &str = include_str!("../assets/prompts/assistant.md");
@@ -17,35 +18,61 @@ const REFERENCE: &str = include_str!("../assets/assistant_reference.md");
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct AssistantRecord {
     session_id: Uuid,
+    #[serde(default)]
+    agent: AgentKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_session_id: Option<String>,
 }
 
-/// The board assistant: one persistent Claude session in the board folder that operates and reconfigures Lanes.
+/// The board assistant: one persistent agent session in the board folder that operates and reconfigures Lanes.
 pub fn prepare(home: &LanesHome, config: &BoardConfig, lanes_exe: &Path) -> Result<LaunchSpec> {
     let lanes = lanes_command(lanes_exe, home);
-    let (session_id, kind) = match load_record(home) {
-        Some(record) => (record.session_id, LaunchKind::Resume),
-        None => (Uuid::new_v4(), LaunchKind::New),
+    let record = load_record(home);
+    let kind = if record.is_some() { LaunchKind::Resume } else { LaunchKind::New };
+    let record = match record {
+        Some(record) => record,
+        None => new_record(config.defaults.agent),
     };
-    let mut args = match kind {
-        LaunchKind::Resume => vec!["--resume".into(), session_id.to_string()],
-        LaunchKind::New => vec!["--session-id".into(), session_id.to_string(), "--append-system-prompt-file".into(), write_system_prompt(home, &lanes)?],
+    let agent = agent::get(record.agent);
+    let agent_session_id = record.agent_session_id.clone().unwrap_or_else(|| record.session_id.to_string());
+    let system_prompt = match kind {
+        LaunchKind::New => Some(write_system_prompt(home, &lanes)?),
+        LaunchKind::Resume => None,
     };
-    let settings = write_session_settings(home, &session_id, lanes_exe)?;
-    args.extend(["--settings".into(), portable(&settings), "--allowedTools".into(), format!("Bash({lanes}:*)")]);
-    if let Some(model) = &config.defaults.model {
-        args.extend(["--model".into(), model.clone()]);
-    }
-    write_atomic(&record_file(home), toml::to_string(&AssistantRecord { session_id })?.as_bytes())?;
+    let extra_args = agent.assistant_args(&lanes);
+    let request = LaunchRequest {
+        home,
+        lanes_exe,
+        session_id: record.session_id,
+        agent_session_id: &agent_session_id,
+        resume: kind == LaunchKind::Resume,
+        system_prompt_file: system_prompt.as_deref(),
+        initial_prompt: None,
+        model: config.defaults.model.as_deref(),
+        effort: None,
+        permission_mode: None,
+        extra_args: &extra_args,
+    };
+    let args = agent.launch_args(&request)?;
+    write_atomic(&record_file(home), toml::to_string(&record)?.as_bytes())?;
     Ok(LaunchSpec {
-        session_id,
+        session_id: record.session_id,
         kind,
-        program: config.defaults.claude_path.clone(),
+        program: config.agent_program(record.agent),
         args,
         cwd: home.root().to_path_buf(),
         env: vec![(HOME_ENV.into(), home.root().to_string_lossy().into_owned())],
         title: "Board assistant".into(),
         draft: None,
+        agent: record.agent,
+        agent_session_id: record.agent_session_id.clone(),
     })
+}
+
+fn new_record(kind: AgentKind) -> AssistantRecord {
+    let session_id = Uuid::new_v4();
+    let agent_session_id = agent::get(kind).new_session_id(session_id);
+    AssistantRecord { session_id, agent: kind, agent_session_id: (agent_session_id != session_id.to_string()).then_some(agent_session_id) }
 }
 
 /// Forgets the assistant's session so the next launch starts a fresh conversation.
@@ -60,7 +87,12 @@ pub fn current_session(home: &LanesHome) -> Option<Uuid> {
     load_record(home).map(|r| r.session_id)
 }
 
-fn write_system_prompt(home: &LanesHome, lanes: &str) -> Result<String> {
+/// The assistant's session: Lanes' id, its agent and the agent's own id.
+pub fn current(home: &LanesHome) -> Option<(Uuid, AgentKind, String)> {
+    load_record(home).map(|r| (r.session_id, r.agent, r.agent_session_id.unwrap_or_else(|| r.session_id.to_string())))
+}
+
+fn write_system_prompt(home: &LanesHome, lanes: &str) -> Result<std::path::PathBuf> {
     let template_path = home.resolve(PROMPT_FILE);
     if !template_path.exists() {
         write_atomic(&template_path, DEFAULT_PROMPT.as_bytes())?;
@@ -71,7 +103,7 @@ fn write_system_prompt(home: &LanesHome, lanes: &str) -> Result<String> {
         .context("rendering the assistant prompt")?;
     let path = home.state_dir().join("assistant.system.md");
     write_atomic(&path, rendered.as_bytes())?;
-    Ok(portable(&path))
+    Ok(path)
 }
 
 fn record_file(home: &LanesHome) -> std::path::PathBuf {
