@@ -15,21 +15,29 @@ Lanes is a desktop app that supervises ordinary `claude` CLI sessions. It never 
 ```
 crates/
   lanes-core   config, tickets, artifacts, prompts, session launch/resume, state, work item links, cleanup, CLI   (no UI)
+                 agent/      the coding agent CLI behind AgentCli (claude.rs, opencode.rs)
+                 platform/   OS-specific processes, opening files, terminals and path rules (Windows, Unix)
+                 pr_status/  pull request status behind PrProvider (github.rs, none.rs)
   lanes-app    GPUI desktop app: board, terminal, tray, theme; builds the `lanes` binary
 ```
 
 `lanes-core` holds all behaviour that can be unit-tested without a window. `lanes-app` renders it and owns processes.
 
+Three interfaces keep Lanes independent of what it runs on and talks to: `AgentCli` for the session CLI (see [agents.md](agents.md)), `Platform` for the operating system, and `PrProvider` for pull request status.
+
 ## Session model
 
-Each `(ticket, column)` pair maps to at most one Claude Code session ID, stored in the ticket's `ticket.toml`:
+Each `(ticket, column)` pair maps to at most one agent session, stored in the ticket's `ticket.toml` with the agent that created it (and the agent's own id, when it differs from Lanes' UUID):
 
 ```toml
 [sessions.dev]
 id = "8f0c…"
 cwd = 'C:\projects\my-app'
 input_hashes = { plan = "3a9c…" }
+agent = "claude"
 ```
+
+The flags below are Claude Code's, from `agent/claude.rs`. Other agents get the same request in their own form; OpenCode, for example, has no system-prompt flag, so the stage prompt and brief become its first message.
 
 - **First entry** to a column:
   1. Lanes generates a UUID and builds the *ticket brief*: title, work item link, description and the *Inputs from earlier stages*.
@@ -47,15 +55,15 @@ input_hashes = { plan = "3a9c…" }
 
 ## Live state
 
-Lanes doesn't scrape the terminal. Each session gets a `--settings` file containing:
+Lanes doesn't scrape the terminal. For Claude Code, each session gets a `--settings` file containing:
 - **Hooks** for `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Notification`, `Stop`, `StopFailure` and `SessionEnd`. Each runs `lanes hook`, which maps the event to *ready / working / needs input / your turn / exited* and writes `state/<uuid>.hook.json`.
 - **A status line** that runs `lanes statusline`. It records the context-window percentage and the plan's 5-hour and 7-day limits to `state/<uuid>.status.json`, then prints a status line (or chains to the user's own).
 
-The app polls these small files once a second to update badges, context meters, the usage bar, the tray badge and notifications. Because state comes from Claude Code itself, it works the same in embedded and external-terminal modes.
+The app polls these small files once a second to update badges, context meters, the usage bar, the tray badge and notifications. Because state comes from the agent itself, it works the same in embedded and external-terminal modes. Agents without hooks (OpenCode today) have no live state: their cards show "running".
 
 ## Embedded terminal
 
-- **Process:** each session runs in a Windows pseudo-console (ConPTY via `portable-pty`).
+- **Process:** each session runs in a pseudo-terminal via `portable-pty` (ConPTY on Windows).
 - **Emulation:** output feeds an `alacritty_terminal` grid. A custom GPUI element paints the grid as background quads and shaped text runs, roughly every frame when something changed.
 - **Input:** keystrokes are encoded to xterm sequences, honouring application-cursor mode and bracketed paste. Files dropped from Explorer are pasted as their paths.
 - **Resizing:** follows the element's size.

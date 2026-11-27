@@ -20,7 +20,7 @@ cargo fmt; cargo clippy --workspace --all-targets -- -D warnings   # CI fails on
 
 | Path | Contents |
 | --- | --- |
-| `crates/lanes-core/src` | All non-UI behaviour, unit-tested: `config`, `ticket`, `artifacts`, `prompt`, `session` (launch/resume), `state` (hooks/status line), `actions`, `timeline`, `transcript`, `cleanup`, `jira`, `assistant`, `config_schema` (`lanes config schema/docs`), `ui_prefs`, `cli` + `board_cli` |
+| `crates/lanes-core/src` | All non-UI behaviour, unit-tested: `config`, `ticket`, `artifacts`, `prompt`, `session` (launch/resume), `agent` (the agent CLI behind `AgentCli`; see `docs/agents.md`), `platform` (OS-specific behaviour), `pr_status` (PR providers), `state` (session state files), `actions`, `timeline`, `transcript`, `cleanup`, `link` (work item links), `assistant`, `config_schema` (`lanes config schema/docs`), `ui_prefs`, `cli` + `board_cli` |
 | `crates/lanes-core/assets` | Starter `board.toml` and default prompts, embedded with `include_str!` and written on first run |
 | `crates/lanes-app/src` | GPUI app. `board_view.rs` is the main view; its child modules in `board_view/` hold feature areas, e.g. `archive`, `artifacts`, `assistant`, `description`, `jira_import`, `lifecycle` (tray, quit), `split` (panel divider) |
 | `crates/lanes-app/src/{pty,terminal_view,keys,palette}.rs` | Embedded terminal: ConPTY process, grid rendering, key encoding, colours |
