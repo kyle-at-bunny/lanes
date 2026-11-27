@@ -38,6 +38,12 @@ pub struct Ticket {
     /// Sessions replaced by "Start fresh", kept so their spend still counts towards the ticket.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retired_sessions: Vec<RetiredSession>,
+    /// The agent picked for this ticket's sessions instead of the board's; see `BoardConfig::ticket_agent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentKind>,
+    /// Lean sessions picked for this ticket, whatever `[spend] mode` says; see `SpendConfig::variant`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lean: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,6 +103,11 @@ impl Ticket {
         }
         self.history.push(Move { from: Some(self.column.clone()), to: column.to_string(), at: now_unix() });
         self.column = column.to_string();
+    }
+
+    /// Whether any stage has started a session, including ones since replaced.
+    pub fn has_had_session(&self) -> bool {
+        !self.sessions.is_empty() || !self.retired_sessions.is_empty()
     }
 
     /// Sets the all-stages working folder; blank clears it.
@@ -217,6 +228,8 @@ impl TicketStore {
             column_cwd: BTreeMap::new(),
             spend_variant: None,
             retired_sessions: Vec::new(),
+            agent: None,
+            lean: false,
         };
         self.save(&ticket)?;
         timeline::record(&self.home, &ticket.id, EventKind::Created, format!("created in {column}"))?;

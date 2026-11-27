@@ -33,7 +33,7 @@ impl AgentCli for Claude {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { live_state: true, usage: true, transcript: true, system_prompt: true }
+        Capabilities { live_state: true, usage: true, transcript: true, system_prompt: true, context_limit: true, compaction_hook: true }
     }
 
     /// Claude Code doesn't keep these flags with a resumed session, so they go on every launch.

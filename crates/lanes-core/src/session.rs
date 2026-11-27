@@ -93,7 +93,7 @@ impl SessionLauncher<'_> {
     }
 
     fn new_spec(&self, ticket: &Ticket, column: &ColumnDef) -> Result<LaunchSpec> {
-        let agent = agent::get(self.config.defaults.agent);
+        let agent = agent::get(self.config.ticket_agent(ticket));
         let session_id = Uuid::new_v4();
         let agent_session_id = agent.new_session_id(session_id);
         let cwd = self.new_session_cwd(ticket, column)?;
@@ -396,6 +396,25 @@ consumes = ["plan", "notes?"]
         let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
         assert!(resumed.draft.is_none());
         assert!(resumed.args.last().unwrap().contains("changed since"));
+    }
+
+    #[test]
+    fn a_ticket_can_run_a_different_agent_from_the_board() {
+        let (_dir, home, config) = fixture_with(
+            "agents = [\"opencode\"]
+[agents.opencode]
+path = \"C:/oc/opencode.exe\"",
+        );
+        let store = TicketStore::new(home.clone());
+        let mut picked = store.create(Some("T-6"), "Picked", "", "dev").unwrap();
+        config.choose_agent(&mut picked, AgentKind::OpenCode).unwrap();
+        let mut plain = store.create(Some("T-7"), "Plain", "", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+
+        let spec = launcher.prepare(&mut picked, "dev").unwrap();
+        assert_eq!((spec.program.as_str(), spec.agent), ("C:/oc/opencode.exe", AgentKind::OpenCode));
+        assert_eq!(launcher.prepare(&mut plain, "dev").unwrap().agent, AgentKind::Claude);
+        assert!(config.choose_agent(&mut picked, AgentKind::Claude).is_err(), "too late once a session exists");
     }
 
     #[test]

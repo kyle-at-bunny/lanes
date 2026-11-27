@@ -48,7 +48,7 @@ impl LanesApp {
         }
         let stages: Vec<String> = spend.stages.iter().map(|s| format!("{} {}", self.board.column_title(&s.column), format_tokens(s.usage.weighted()))).collect();
         let mut text = format!("Spend {} · {} · peak ctx {}", format_tokens(spend.total.weighted()), stages.join(", "), format_tokens(spend.total.peak_context as f64));
-        if self.board.config.spend.mode != lanes_core::config::SpendMode::Off {
+        if self.board.config.spend.mode != lanes_core::config::SpendMode::Off || ticket.lean {
             text.push_str(&format!(" · {}", self.board.config.spend.variant(ticket).label()));
         }
         Some(div().text_xs().text_color(cx.theme().muted_foreground).child(text))

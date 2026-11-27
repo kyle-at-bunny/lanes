@@ -68,6 +68,12 @@ pub struct SettingsArgs {
     /// The short name shown for the link, when it can't be worked out from the URL (e.g. "SUP-12").
     #[arg(long = "link-key")]
     pub link_key: Option<String>,
+    /// The agent for this ticket's sessions, from the board's [defaults] agents; only before its first session.
+    #[arg(long)]
+    pub agent: Option<crate::agent::AgentKind>,
+    /// Lean sessions for this ticket whatever [spend] mode says (--lean, or --lean false); only before its first session.
+    #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL")]
+    pub lean: Option<bool>,
 }
 
 /// Validated settings, checked before anything is written.
@@ -75,6 +81,8 @@ struct TicketChanges {
     cwd: Option<String>,
     column_cwd: Vec<(String, String)>,
     link: Option<Option<TicketLink>>,
+    agent: Option<crate::agent::AgentKind>,
+    lean: Option<bool>,
 }
 
 impl TicketChanges {
@@ -90,10 +98,19 @@ impl TicketChanges {
             Some("") => Some(None),
             Some(url) => Some(Some(link::link_from(url, settings.link_key.as_deref())?)),
         };
-        Ok(Self { cwd: settings.cwd.clone(), column_cwd, link })
+        if let Some(kind) = settings.agent {
+            config.ensure_agent_offered(kind)?;
+        }
+        Ok(Self { cwd: settings.cwd.clone(), column_cwd, link, agent: settings.agent, lean: settings.lean })
     }
 
-    fn apply(self, ticket: &mut Ticket) {
+    fn apply(self, config: &BoardConfig, ticket: &mut Ticket) -> Result<()> {
+        if let Some(kind) = self.agent {
+            config.choose_agent(ticket, kind)?;
+        }
+        if let Some(lean) = self.lean {
+            config.choose_lean(ticket, lean)?;
+        }
         if let Some(cwd) = &self.cwd {
             ticket.set_cwd(cwd);
         }
@@ -103,6 +120,7 @@ impl TicketChanges {
         if let Some(link) = self.link {
             ticket.link = link;
         }
+        Ok(())
     }
 
     fn changes_folders(&self) -> bool {
@@ -134,7 +152,7 @@ pub fn ticket(home: &LanesHome, action: &TicketAction) -> Result<()> {
             require_column(&board.config, &column)?;
             let changes = TicketChanges::parse(&board.config, settings)?;
             let mut ticket = board.tickets.create(id.as_deref(), title, description, &column)?;
-            changes.apply(&mut ticket);
+            changes.apply(&board.config, &mut ticket)?;
             board.tickets.save(&ticket)?;
             format!("created {} in {}", ticket.id, board.column_title(&column))
         }
@@ -160,6 +178,8 @@ pub fn board_summary(home: &LanesHome) -> Result<()> {
             let _ = writeln!(out, "    consumes: {:?}  produces: {:?}", column.consumes, column.produces);
         }
     }
+    let agents: Vec<String> = config.agent_choices().iter().map(|kind| kind.config_name().to_string()).collect();
+    let _ = writeln!(out, "\nAgents: {} (default first; tickets can pick another before their first session)", agents.join(", "));
     out.push_str("\nArtifacts:\n");
     for (name, def) in &config.artifacts {
         let _ = writeln!(out, "- {name} ({:?}): {}", def.kind, def.description);
@@ -210,10 +230,14 @@ pub fn check_config(home: &LanesHome) -> Vec<String> {
         .collect()
 }
 
-/// Settings that are valid but have no effect with the board's agent.
+/// Settings that are valid but have no effect with one of the board's agents, and agents that can't be found.
 pub fn config_warnings(config: &BoardConfig) -> Vec<String> {
-    let agent = crate::agent::get(config.defaults.agent);
-    let missing_program = config.agent_program(config.defaults.agent).err().map(|err| err.to_string());
+    config.agent_choices().into_iter().flat_map(|kind| agent_warnings(config, kind)).collect()
+}
+
+fn agent_warnings(config: &BoardConfig, kind: crate::agent::AgentKind) -> Vec<String> {
+    let agent = crate::agent::get(kind);
+    let missing_program = config.agent_program(kind).err().map(|err| err.to_string());
     let ignored = agent.ignored_settings();
     let defaults = &config.defaults;
     let board_level = [("model", defaults.model.is_some()), ("effort", defaults.effort.is_some())];
@@ -231,8 +255,9 @@ pub fn config_warnings(config: &BoardConfig) -> Vec<String> {
             agent.display_name()
         ));
     }
-    if config.spend.mode != crate::spend::SpendMode::Off && !agent.capabilities().usage {
-        warnings.push(format!("{} doesn't report its context size or token usage, so [spend] has no effect on its sessions", agent.display_name()));
+    let lean_features = crate::spend::lean_features(&agent.capabilities());
+    if config.spend.mode != crate::spend::SpendMode::Off && lean_features.len() == 1 {
+        warnings.push(format!("lean {} sessions only get {}: {} can't cap its context or report its size", agent.display_name(), lean_features[0], agent.display_name()));
     }
     warnings.extend(missing_program);
     warnings
@@ -252,6 +277,14 @@ fn list_tickets(board: &Board, column: Option<&str>, json: bool) -> Result<Strin
 
 fn show_ticket(board: &Board, ticket: &Ticket) -> String {
     let mut out = format!("{}: {}\ncolumn: {}\n", ticket.id, ticket.title, board.column_title(&ticket.column));
+    let agent = board.config.ticket_agent(ticket);
+    let chosen = if ticket.agent.is_some() { "chosen for this ticket" } else { "board default" };
+    let _ = writeln!(out, "agent: {} ({chosen})", agent.config_name());
+    if board.config.spend.is_lean(ticket) {
+        let why = if ticket.lean { "chosen for this ticket" } else { "from [spend] mode" };
+        let features = crate::spend::lean_features(&crate::agent::get(agent).capabilities()).join(", ");
+        let _ = writeln!(out, "lean: yes ({why}): {features}");
+    }
     if let Some(link) = &ticket.link {
         let _ = writeln!(out, "link: {} {}", link.key, link.url);
     }
@@ -295,7 +328,7 @@ fn edit_ticket(board: &Board, id: &str, title: Option<&str>, description: Option
     if let Some(description) = description {
         ticket.description = description.trim().to_string();
     }
-    changes.apply(&mut ticket);
+    changes.apply(&board.config, &mut ticket)?;
     board.tickets.save(&ticket)?;
     Ok(format!("updated {id}{note}"))
 }
@@ -311,6 +344,39 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn edit_picks_an_offered_agent_and_show_reports_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = LanesHome::new(dir.path());
+        std::fs::write(
+            home.board_file(),
+            "[defaults]
+agents = [\"opencode\"]
+[[columns]]
+id = \"backlog\"
+",
+        )
+        .unwrap();
+        let board = Board::open(home.clone(), PathBuf::from("lanes")).unwrap();
+        board.tickets.create(Some("T-1"), "t", "", "backlog").unwrap();
+        assert!(show_ticket(&board, &board.tickets.load("T-1").unwrap()).contains("agent: claude (board default)"));
+        let pick = |kind| SettingsArgs { agent: Some(kind), ..Default::default() };
+        edit_ticket(&board, "T-1", None, None, &pick(crate::agent::AgentKind::OpenCode)).unwrap();
+        assert!(show_ticket(&board, &board.tickets.load("T-1").unwrap()).contains("agent: opencode (chosen for this ticket)"));
+        edit_ticket(&board, "T-1", None, None, &SettingsArgs { lean: Some(true), ..Default::default() }).unwrap();
+        assert!(show_ticket(&board, &board.tickets.load("T-1").unwrap()).contains("lean: yes (chosen for this ticket): hand-off to a fresh session"));
+
+        std::fs::write(
+            home.board_file(),
+            "[[columns]]
+id = \"backlog\"
+",
+        )
+        .unwrap();
+        let board = Board::open(home.clone(), PathBuf::from("lanes")).unwrap();
+        assert!(edit_ticket(&board, "T-1", None, None, &pick(crate::agent::AgentKind::OpenCode)).is_err());
+    }
+
+    #[test]
     fn create_and_edit_set_links_and_bad_links_create_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let home = LanesHome::new(dir.path());
@@ -320,7 +386,7 @@ mod tests {
 
         let changes = TicketChanges::parse(&board.config, &with_link("https://dev.azure.com/org/p/_workitems/edit/45", None)).unwrap();
         let mut ticket = board.tickets.create(Some("T-5"), "t", "", "backlog").unwrap();
-        changes.apply(&mut ticket);
+        changes.apply(&board.config, &mut ticket).unwrap();
         board.tickets.save(&ticket).unwrap();
         assert_eq!(board.tickets.load("T-5").unwrap().link.unwrap().key, "#45");
 
@@ -382,7 +448,11 @@ id = \"dev\"
 ",
         )
         .unwrap();
-        assert!(config_warnings(&lean).iter().any(|w| w.contains("[spend] has no effect")));
+        assert!(
+            config_warnings(&lean).iter().any(|w| w == "lean OpenCode sessions only get hand-off to a fresh session: OpenCode can't cap its context or report its size"),
+            "{:?}",
+            config_warnings(&lean)
+        );
         assert!(
             config_warnings(
                 &BoardConfig::parse(

@@ -5,6 +5,7 @@
 
 [defaults]
 agent = "claude"             # the coding agent CLI that runs new sessions: "claude" | "opencode"
+# agents = ["opencode"]      # other agents a ticket can pick before its first session
 # model = "opus"
 # effort = "medium"
 terminal = "embedded"        # "embedded" | "external" (Windows Terminal tabs)

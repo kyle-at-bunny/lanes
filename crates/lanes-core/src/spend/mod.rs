@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agent::Capabilities;
 use crate::config::ColumnDef;
 use crate::paths::LanesHome;
 use crate::ticket::Ticket;
@@ -59,8 +60,11 @@ impl Variant {
 }
 
 impl SpendConfig {
-    /// The variant a ticket's sessions run as under the current mode.
+    /// The variant a ticket's sessions run as: lean if the ticket asked for it, otherwise as the mode decides.
     pub fn variant(&self, ticket: &Ticket) -> Variant {
+        if ticket.lean {
+            return Variant::Lean;
+        }
         match self.mode {
             SpendMode::Off => Variant::Baseline,
             SpendMode::Lean => Variant::Lean,
@@ -76,7 +80,7 @@ impl SpendConfig {
     /// Tickets that already had sessions stay unassigned, since part of their spend predates the test.
     pub fn assign_variant(&self, ticket: &mut Ticket, others: &[Ticket]) -> bool {
         let never_started = ticket.sessions.is_empty() && ticket.retired_sessions.is_empty();
-        if self.mode != SpendMode::Ab || ticket.spend_variant.is_some() || !never_started {
+        if self.mode != SpendMode::Ab || ticket.spend_variant.is_some() || ticket.lean || !never_started {
             return false;
         }
         let count = |variant| others.iter().filter(|t| t.id != ticket.id && t.spend_variant == Some(variant)).count();
@@ -94,6 +98,17 @@ impl SpendConfig {
     }
 }
 
+/// What lean does for an agent's sessions, in words for the UI and `config check`; hand-off works with every agent.
+pub fn lean_features(capabilities: &Capabilities) -> Vec<&'static str> {
+    let supported = [
+        (capabilities.context_limit, "a context cap"),
+        (capabilities.compaction_hook, "the brief again after compaction"),
+        (capabilities.usage, "a nudge when context grows"),
+        (true, "hand-off to a fresh session"),
+    ];
+    supported.into_iter().filter(|(on, _)| *on).map(|(_, feature)| feature).collect()
+}
+
 /// Where a stage session writes the summary its fresh successor starts from.
 pub fn summary_path(home: &LanesHome, ticket_id: &str, column: &str) -> PathBuf {
     home.sessions_dir(ticket_id).join(format!("{column}.summary.md"))
@@ -109,6 +124,24 @@ mod tests {
         let store = TicketStore::new(LanesHome::new(dir.path()));
         let list = (0..n).map(|i| store.create(Some(&format!("T-{i}")), "t", "", "dev").unwrap()).collect();
         (dir, list)
+    }
+
+    #[test]
+    fn a_ticket_can_be_lean_on_its_own_and_stays_out_of_the_test() {
+        let (_dir, mut list) = tickets(1);
+        let ticket = &mut list[0];
+        ticket.lean = true;
+        let off = SpendConfig::default();
+        assert!(off.is_lean(ticket));
+        let ab = SpendConfig { mode: SpendMode::Ab, ..SpendConfig::default() };
+        assert!(!ab.assign_variant(ticket, &[]));
+        assert_eq!((ticket.spend_variant, ab.variant(ticket)), (None, Variant::Lean));
+    }
+
+    #[test]
+    fn lean_features_follow_the_agents_capabilities() {
+        assert_eq!(lean_features(&crate::agent::get(crate::agent::AgentKind::Claude).capabilities()).len(), 4);
+        assert_eq!(lean_features(&crate::agent::get(crate::agent::AgentKind::OpenCode).capabilities()), ["hand-off to a fresh session"]);
     }
 
     #[test]

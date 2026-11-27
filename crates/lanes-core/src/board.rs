@@ -60,6 +60,20 @@ impl Board {
         Ok(MoveCheck { forward, missing_outputs })
     }
 
+    /// Sets which agent runs the ticket's sessions, before its first one.
+    pub fn choose_agent(&self, ticket_id: &str, kind: crate::agent::AgentKind) -> Result<()> {
+        let mut ticket = self.tickets.load(ticket_id)?;
+        self.config.choose_agent(&mut ticket, kind)?;
+        self.tickets.save(&ticket)
+    }
+
+    /// Turns lean sessions on or off for one ticket, before its first session.
+    pub fn choose_lean(&self, ticket_id: &str, lean: bool) -> Result<()> {
+        let mut ticket = self.tickets.load(ticket_id)?;
+        self.config.choose_lean(&mut ticket, lean)?;
+        self.tickets.save(&ticket)
+    }
+
     pub fn move_ticket(&self, ticket_id: &str, to: &str) -> Result<Ticket> {
         let mut ticket = self.tickets.load(ticket_id)?;
         let from = self.column_title(&ticket.column);

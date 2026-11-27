@@ -29,6 +29,7 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `"claude"` | The coding agent CLI that runs new sessions. Sessions that already exist keep the agent that created them. See [Agents](#agents). |
+| `agents` | `[]` | More agents a ticket can be switched to before its first session, e.g. `["opencode"]`. `agent` is always one of the choices. |
 | `claude_path` | none | Claude Code executable; `[agents.claude] path` does the same and wins when both are set. See [Agents](#agents) for how the program is found when neither is set. |
 | `model` | none | Default `--model` for every session (e.g. `"opus"`, `"sonnet"`). |
 | `effort` | none | Default `--effort` for every session. |
@@ -81,6 +82,16 @@ The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and
 ## Agents
 
 Each session runs a coding agent CLI in a terminal. `[defaults] agent` picks which one runs new sessions; the board assistant uses it too. Changing it doesn't affect existing sessions: a stage that already has a session always resumes it with the agent that created it.
+
+**Per-ticket agents.** List the other agents tickets may use in `[defaults] agents`:
+
+```toml
+[defaults]
+agent = "claude"        # the board's default
+agents = ["opencode"]   # tickets can also pick these
+```
+
+Until a ticket's first session starts, in whatever column, its panel shows an **Agent** choice, and `lanes ticket create/edit --agent <name>` does the same. Every stage of that ticket then uses the chosen agent. After the first session the choice is fixed, so one ticket's sessions never mix agents. A card whose agent isn't the board default shows the agent's name. If you later remove an agent from `agents`, tickets that picked it go back to the default for new sessions. `lanes config check` checks every listed agent.
 
 | Agent | `agent` | Live status (working / needs input) | Context and plan usage | Transcript tab |
 | --- | --- | --- | --- | --- |
@@ -229,7 +240,7 @@ cleanup = "git worktree remove --force ../wt-{{ ticket.id }}"
 
 ## `[spend]`
 
-Token-saving features for stage sessions, and an A/B test that measures whether they help. They rely on Claude Code reporting its context size and token usage, so they apply to Claude sessions only; `lanes config check` warns when the board's agent can't use them. Most of the cost of a long session is re-reading its whole context on every turn, so these features keep stage sessions small.
+Token-saving features for stage sessions, and an A/B test that measures whether they help. Most of the cost of a long session is re-reading its whole context on every turn, so these features keep stage sessions small. Each agent supports the parts it can (see [What each agent gets](#what-each-agent-gets)); `lanes config check` warns when an agent only gets the hand-off.
 
 ```toml
 [spend]
@@ -245,9 +256,21 @@ nudge_at = 250000      # lean sessions suggest a fresh session past this many to
 | `nudge_at` | `250000` | Once a lean session's context passes this many tokens, its card shows the size and "hand off". |
 
 What a lean ticket gets:
-- **A context limit.** `--autocompact <max_context>` on every launch and resume.
-- **The brief again after compaction.** Lanes adds the ticket brief and the current inputs from earlier stages back into the conversation right after Claude Code compacts it.
+- **A context limit.** The session compacts at `max_context` tokens (Claude Code: `--autocompact <max_context>` on every launch and resume).
+- **The brief again after compaction.** Lanes adds the ticket brief and the current inputs from earlier stages back into the conversation right after the agent compacts it.
+- **A nudge.** Past `nudge_at` tokens of context, the card shows the size and "hand off".
 - **Hand off to a fresh session.** In the ticket panel, **Hand off to a fresh session** asks the running session to write a summary to `tickets/<id>/sessions/<column>.summary.md`. Once it exists, **Start fresh from summary** ends that session and starts a new one for the same stage. The new session's brief includes the summary. The old session is kept on the ticket, so its spend still counts.
+
+**One ticket at a time.** You don't need `mode` to try lean. Before a ticket's first session, its panel has a **Lean** Off / On choice, and `lanes ticket create/edit --lean` does the same. A ticket set this way is lean whatever `mode` says, shows a "lean" tag on its card, and stays out of the A/B comparison. Like the agent, the choice is fixed once the first session starts.
+
+#### What each agent gets
+
+Lean is the same request for every agent, and each adapter does what its CLI allows. The panel shows the list next to the **Lean** choice.
+
+| Agent | Context limit | Brief after compaction | Nudge | Hand-off to a fresh session |
+| --- | --- | --- | --- | --- |
+| Claude Code | yes | yes | yes | yes |
+| OpenCode | no | no | no | yes |
 
 **Measuring it.** `lanes spend` reads Claude Code's transcripts for every session each ticket has had. It prints spend per ticket and stage, and a comparison of the two arms using the mean spend of finished tickets. A ticket is finished once it's in the last column or archived. The ticket panel shows the same figures for the selected ticket. Spend is counted in input-token equivalents at API price ratios: a cache read counts 0.1, a cache write 1.25 (5-minute cache) or 2 (1-hour cache), output 5. How a subscription plan weighs these isn't documented, so treat the figures as relative.
 

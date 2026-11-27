@@ -56,6 +56,10 @@ pub struct Capabilities {
     pub transcript: bool,
     /// The stage prompt can be appended to the system prompt; without it the brief is sent as the first message.
     pub system_prompt: bool,
+    /// Honours `LaunchRequest::max_context`, compacting the conversation at that size (lean tickets).
+    pub context_limit: bool,
+    /// Reports when the session continues after compacting (`is_compaction_start`), so Lanes can put the brief back.
+    pub compaction_hook: bool,
 }
 
 /// Everything a launch needs, independent of how a particular CLI spells it.

@@ -16,6 +16,8 @@ Everything else is a capability (`Capabilities`). When one is missing, Lanes deg
 | `live_state` | Working / needs input / your turn on cards, attention toasts, the quit check | Cards show **running** while the terminal is open |
 | `usage` | "ctx N%" on cards and the 5h / 7d plan meters | Not shown |
 | `transcript` | The Transcript tab and session sizes in the Sessions view | The tab says transcripts aren't available |
+| `context_limit` | Lean tickets' context cap: honour `LaunchRequest::max_context` | Lean sessions aren't capped |
+| `compaction_hook` | Putting the ticket brief back after compaction (`is_compaction_start`) | The brief isn't restored |
 
 ## The trait
 

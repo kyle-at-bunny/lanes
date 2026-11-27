@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, HashSet};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::agent::AgentKind;
 use crate::defaults;
 use crate::paths::{LanesHome, write_atomic};
 pub use crate::spend::{SpendConfig, SpendMode};
@@ -49,6 +50,8 @@ pub struct AgentConfig {
 pub struct Defaults {
     /// Which agent CLI runs new sessions. Existing sessions keep the agent that created them.
     pub agent: crate::agent::AgentKind,
+    /// More agents a ticket can be switched to before its first session, e.g. ["opencode"]; `agent` is always one of the choices.
+    pub agents: Vec<crate::agent::AgentKind>,
     /// Claude Code executable; same as [agents.claude] path, which wins when both are set. Unset: `claude` is looked up on PATH.
     pub claude_path: Option<String>,
     /// Default --model for every session, e.g. "opus" or "sonnet".
@@ -122,6 +125,7 @@ impl Default for Defaults {
     fn default() -> Self {
         Self {
             agent: crate::agent::AgentKind::Claude,
+            agents: Vec::new(),
             claude_path: None,
             model: None,
             effort: None,
@@ -279,6 +283,44 @@ impl<'a> ArtifactRef<'a> {
 
 impl BoardConfig {
     /// The program that runs `kind` sessions: the configured path if set, else the agent's program found on PATH.
+    /// The agents a ticket can use: the board's default first, then the rest of `[defaults] agents`.
+    pub fn agent_choices(&self) -> Vec<AgentKind> {
+        let mut choices = vec![self.defaults.agent];
+        for kind in &self.defaults.agents {
+            if !choices.contains(kind) {
+                choices.push(*kind);
+            }
+        }
+        choices
+    }
+
+    /// The agent for the ticket's new sessions: its own choice while the board still offers it, else the board's.
+    pub fn ticket_agent(&self, ticket: &crate::ticket::Ticket) -> AgentKind {
+        ticket.agent.filter(|kind| self.agent_choices().contains(kind)).unwrap_or(self.defaults.agent)
+    }
+
+    /// Sets the agent for the ticket's sessions; only one of the board's choices, and only before its first session.
+    pub fn choose_agent(&self, ticket: &mut crate::ticket::Ticket, kind: AgentKind) -> Result<()> {
+        self.ensure_agent_offered(kind)?;
+        ensure!(!ticket.has_had_session(), "{} already has sessions, and its agent can only change before the first one", ticket.id);
+        ticket.agent = (kind != self.defaults.agent).then_some(kind);
+        Ok(())
+    }
+
+    /// Makes the ticket's sessions lean (or not) on its own; only before its first session, like the agent.
+    pub fn choose_lean(&self, ticket: &mut crate::ticket::Ticket, lean: bool) -> Result<()> {
+        ensure!(!ticket.has_had_session(), "{} already has sessions, and lean can only change before the first one", ticket.id);
+        ticket.lean = lean;
+        Ok(())
+    }
+
+    pub fn ensure_agent_offered(&self, kind: AgentKind) -> Result<()> {
+        let choices = self.agent_choices();
+        let names: Vec<&str> = choices.iter().map(|k| k.config_name()).collect();
+        ensure!(choices.contains(&kind), "{} isn't one of this board's agents ({}); add it to [defaults] agents", kind.config_name(), names.join(", "));
+        Ok(())
+    }
+
     pub fn agent_program(&self, kind: crate::agent::AgentKind) -> Result<String> {
         self.agent_program_with(kind, |name| crate::platform::current().find_on_path(name))
     }
@@ -440,6 +482,32 @@ path = "review-notes.md"
         assert_eq!(both.agent_program_with(Claude, found).unwrap(), "new");
         assert_eq!(both.agent_program_with(OpenCode, found).unwrap(), "C:/oc/opencode.exe");
         assert_eq!(both.defaults.agent, Claude);
+    }
+
+    #[test]
+    fn tickets_choose_from_the_boards_agents_until_their_first_session() {
+        use crate::agent::AgentKind::{Claude, OpenCode};
+        let only_claude = BoardConfig::parse("[[columns]]\nid = \"a\"\n").unwrap();
+        let both = BoardConfig::parse("[defaults]\nagents = [\"opencode\"]\n[[columns]]\nid = \"a\"\n").unwrap();
+        assert_eq!(only_claude.agent_choices(), [Claude]);
+        assert_eq!(both.agent_choices(), [Claude, OpenCode]);
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut ticket = crate::ticket::TicketStore::new(LanesHome::new(dir.path())).create(Some("T-1"), "t", "", "a").unwrap();
+        assert!(only_claude.choose_agent(&mut ticket, OpenCode).unwrap_err().to_string().contains("isn't one of this board's agents (claude)"));
+        both.choose_agent(&mut ticket, OpenCode).unwrap();
+        assert_eq!((ticket.agent, both.ticket_agent(&ticket), only_claude.ticket_agent(&ticket)), (Some(OpenCode), OpenCode, Claude));
+        both.choose_agent(&mut ticket, Claude).unwrap();
+        assert_eq!(ticket.agent, None, "the board's default is stored as no choice");
+
+        ticket.retired_sessions.push(crate::ticket::RetiredSession {
+            column: "a".into(),
+            id: uuid::Uuid::new_v4(),
+            retired_at: 0,
+            agent: Claude,
+            agent_session_id: None,
+        });
+        assert!(both.choose_agent(&mut ticket, OpenCode).unwrap_err().to_string().contains("before the first one"));
     }
     #[test]
     fn parses_columns_and_artifacts() {

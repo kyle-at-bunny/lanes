@@ -26,6 +26,7 @@ use lanes_core::timeline::{self, EventKind};
 use lanes_core::transcript::{Speaker, TranscriptEntry};
 use uuid::Uuid;
 
+mod agent_choice;
 mod archive;
 mod artifacts;
 mod assistant;
@@ -648,7 +649,7 @@ impl LanesApp {
             .child(div().flex_1())
             .when_some(limits.as_ref().and_then(|l| l.five_hour), |this, limit| this.child(usage_meter("5h", limit, cx)))
             .when_some(limits.as_ref().and_then(|l| l.seven_day), |this, limit| this.child(usage_meter("7d", limit, cx)))
-            .when(limits.is_none() && agent::get(self.board.config.defaults.agent).capabilities().usage, |this| {
+            .when(limits.is_none() && self.board.config.agent_choices().iter().any(|kind| agent::get(*kind).capabilities().usage), |this| {
                 this.child(div().text_xs().text_color(cx.theme().muted_foreground).child("plan usage appears after the first response"))
             })
             .child({
@@ -823,7 +824,7 @@ impl LanesApp {
                 this.select(id.clone(), window, cx)
             }))
             .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { title: dragged.title.clone() }))
-            .child(h_flex().justify_between().child(card_id_label(ticket, cx)).child(session_tag(&session, cx)))
+            .child(h_flex().justify_between().child(card_id_label(ticket, cx)).child(h_flex().gap_1().children(self.card_tags(ticket)).child(session_tag(&session, cx))))
             .child(div().text_sm().child(ticket.title.clone()))
             .when_some(prs, |this, badge| this.child(badge))
             .child(
@@ -919,6 +920,8 @@ impl LanesApp {
                 )
             })
             .child(self.render_description(ticket, cx))
+            .when_some(self.render_agent_choice(ticket, cx), |this, row| this.child(row))
+            .when_some(self.render_lean_choice(ticket, cx), |this, row| this.child(row))
             .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
             .when_some(self.render_fresh_session_actions(ticket, live, cx), |this, row| this.child(row))
             .when_some(self.render_spend_row(ticket, cx), |this, row| this.child(row))

@@ -26,7 +26,7 @@ impl AgentCli for OpenCode {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities { live_state: false, usage: false, transcript: true, system_prompt: false }
+        Capabilities { live_state: false, usage: false, transcript: true, system_prompt: false, context_limit: false, compaction_hook: false }
     }
 
     fn new_session_id(&self, session_id: Uuid) -> String {
