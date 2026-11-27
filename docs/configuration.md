@@ -38,24 +38,29 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 
 ## Artifacts
 
-Artifacts are the only thing that passes between stages. Each one is either a file or a short piece of text.
+Artifacts are the only thing that passes between stages. Each one is a markdown file, a short piece of text, or an HTML page.
 
 ```toml
 [artifacts.plan]
-type = "file"              # "file" or "text"
-inline = true              # files only: paste the content into the next stage's first prompt
-path = "plan.md"           # files only: name inside the ticket's artifacts folder (default "<name>.md")
+type = "file"              # "file", "text" or "html"
+inline = true              # markdown files only: paste the content into the next stage's first prompt
+path = "plan.md"           # file and html only: name inside the ticket's artifacts folder (default "<name>.md" or "<name>.html")
 description = "Implementation plan: goal, approach, files to change, risks, and how to verify."
 
 [artifacts.branch]
 type = "text"
 description = "One line per repository, exactly in this format: `<absolute repo path> | <branch> | <PR URL or \"no PR\">`. No other text."
+
+[artifacts.mockup]
+type = "html"
+description = "A clickable mockup of the new settings page."
 ```
 
 The `description` is shown to both sides: the producing stage is told what to write, and the consuming stage is told what it is reading.
 
 - **File artifacts** live at `tickets/<ID>/artifacts/<path>`. The producing session is given the absolute path to write.
 - **Text artifacts** are saved with `lanes artifact set --ticket <ID> <name> "<value>"`. Claude is given the exact command.
+- **HTML artifacts** live at `tickets/<ID>/artifacts/<path>` like file artifacts. The producing session is asked for a single self-contained page (inline CSS and scripts), and later stages are given its path, never its content (`inline` is ignored). Use them for mockups, reports and anything better viewed than read.
 - **Optional inputs:** in `consumes`, a trailing `?` (e.g. `"review_notes?"`) marks the input as optional. Missing optional inputs are simply left out of the prompt.
 - **Missing outputs:** moving a ticket forward when any non-optional `produces` artifact is missing asks for confirmation. It never blocks.
 
@@ -64,10 +69,10 @@ The `description` is shown to both sides: the producing stage is told what to wr
 The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and flags missing required inputs and outputs. The **Artifacts** tab shows them in full, grouped into **Inputs** (consumed by the current column), **Outputs** (produced by it; missing required ones are highlighted) and a collapsed **Other**.
 
 - **Provenance:** each artifact shows who last wrote it and when, e.g. "written by Dev · 5m ago". `lanes artifact set` records the stage it ran in, and a session's own edits to a file artifact are recorded through its hooks. A file changed outside any session shows "updated … ago".
-- **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** for your editor.
+- **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** for your editor. **HTML artifacts** show their size, with **Open in browser** (the program Windows opens `.html` files with, normally your default browser) and **Open folder**.
 - **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with **Open folder** / **VS Code** buttons, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
 - **Links:** URLs open in the browser, and local paths (`C:\…`, `\\server\…`, `~/…`) get **Open folder** / **VS Code** buttons.
-- **Pull request status:** pull request links (`https://<host>/<owner>/<repo>/pull/<n>`) in any artifact are checked with the [GitHub CLI](https://cli.github.com) (`gh pr view`), so `gh` must be installed and logged in. Each link gets a chip such as "open · checks failing", "draft" or "merged". Cards get a badge like "2 PRs · 1 failing", and **Finish & clean up** warns about PRs that are still open. Open PRs are rechecked every minute, merged and closed ones every 10 minutes. If `gh` fails, the link shows "status unavailable".
+- **Pull request status:** pull request links (`https://<host>/<owner>/<repo>/pull/<n>`) in any artifact are checked with the [GitHub CLI](https://cli.github.com) (`gh pr view`), so `gh` must be installed and logged in. Each link gets a chip such as "open · checks failing", "draft" or "merged". While a PR is open it also gets its review decision ("review needed", "approved" or "changes requested") and a count of unresolved review comments, fetched with `gh api graphql`. The ticket panel lists every PR under the artifacts line as a short link (e.g. `app#12`) with the same chips. Cards get a badge like "2 PRs · 1 failing · changes requested · 3 unresolved" (it turns red for failing checks or requested changes), and **Finish & clean up** warns about PRs that are still open. Open PRs are rechecked every minute, merged and closed ones every 10 minutes. If `gh` fails, the link shows "status unavailable".
 
 ## `[[columns]]`
 

@@ -98,7 +98,7 @@ impl ArtifactPanel {
 
 fn load_entry(store: &ArtifactStore<'_>, writes: &BTreeMap<String, Provenance>, artifact: ArtifactRef<'_>) -> Result<ArtifactEntry> {
     let def = store.def(artifact.name)?;
-    let path = (def.kind == ArtifactType::File).then(|| store.file_path(artifact.name, def));
+    let path = def.kind.is_file().then(|| store.file_path(artifact.name, def));
     let content = store.read(artifact.name)?;
     let recorded = writes.get(artifact.name).cloned();
     let provenance = match (&content, &path) {

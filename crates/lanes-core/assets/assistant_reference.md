@@ -36,7 +36,7 @@ its own API token for this.
   buttons (`label`, `command`, optional `cwd`).
 - `start` (in `[defaults]` or per column): `"wait"` (default) gives a new session the ticket brief as context and
   waits for the user's first message; `"prompt"` sends the brief as the first message so Claude starts at once.
-- `[artifacts.<name>]` has `type = "file"` or `"text"`, a `description`, and optional `inline = true`.
+- `[artifacts.<name>]` has `type = "file"`, `"text"` or `"html"`, a `description`, and optional `inline = true` (markdown files only). HTML artifacts are self-contained pages the user opens in their browser.
 - `[defaults]` holds board-wide settings; `[[actions]]` are buttons on every ticket; `[jira]` has `site`
   (and `email`, only for Lanes' own API import).
 - Column prompts are minijinja templates (`{{ '{{' }} ticket.id {{ '}}' }}`, `{{ '{{' }} ticket.title {{ '}}' }}`,

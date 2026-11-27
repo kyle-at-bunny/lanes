@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::tag::Tag;
-use gpui_kit::component::{ActiveTheme, Sizable, Theme};
+use gpui_kit::component::{ActiveTheme, Sizable, Theme, h_flex};
 use gpui_kit::*;
 use lanes_core::paths::now_unix;
-use lanes_core::pr_status::{self, Checks, PrCache, PrState, PrStatus, Tone};
+use lanes_core::pr_status::{self, Checks, PrCache, PrState, PrStatus, Review, Tone};
 
 use super::LanesApp;
 
@@ -22,6 +23,10 @@ impl PrTracker {
 
     fn statuses(&self, ticket_id: &str) -> Vec<&PrStatus> {
         self.links.get(ticket_id).map(|urls| self.cache.statuses(urls)).unwrap_or_default()
+    }
+
+    fn links(&self, ticket_id: &str) -> &[String] {
+        self.links.get(ticket_id).map(Vec::as_slice).unwrap_or_default()
     }
 }
 
@@ -63,19 +68,52 @@ impl LanesApp {
         Some(tag)
     }
 
+    /// The ticket's PR links under its header, each as a short link with its status chips.
+    pub(super) fn render_pr_links(&self, ticket_id: &str, cx: &App) -> Option<AnyElement> {
+        let links = self.prs.links(ticket_id);
+        if links.is_empty() {
+            return None;
+        }
+        let theme = cx.theme();
+        let rows: Vec<_> = links
+            .iter()
+            .map(|url| {
+                let target = url.clone();
+                let link = Button::new(SharedString::from(format!("header-pr-{url}")))
+                    .label(pr_status::short_name(url).unwrap_or_else(|| url.clone()))
+                    .link()
+                    .xsmall()
+                    .tooltip(url.clone())
+                    .on_click(move |_, _, cx| cx.open_url(&target));
+                h_flex().items_center().gap_1().child(link).children(pr_chip(url, &self.prs.cache, theme)).into_any_element()
+            })
+            .collect();
+        Some(
+            h_flex()
+                .flex_wrap()
+                .items_center()
+                .gap_x_3()
+                .gap_y_1()
+                .text_xs()
+                .child(div().text_color(theme.muted_foreground).child(if links.len() == 1 { "PR" } else { "PRs" }))
+                .children(rows)
+                .into_any_element(),
+        )
+    }
+
     /// Lines for the Finish & clean up confirmation about PRs that are still open.
     pub(super) fn open_pr_warnings(&self, ticket_id: &str) -> Vec<String> {
-        self.prs.statuses(ticket_id).into_iter().filter(|s| s.is_open()).map(|s| format!("⚠ PR #{} is still open ({}): {}", s.number, s.label(), s.url)).collect()
+        self.prs.statuses(ticket_id).into_iter().filter(|s| s.is_open()).map(|s| format!("⚠ PR #{} is still open ({}): {}", s.number, s.full_label(), s.url)).collect()
     }
 }
 
-/// A status chip shown next to a PR link, or None when the link isn't a PR or hasn't been fetched yet.
-pub(super) fn pr_chip(url: &str, cache: &PrCache, theme: &Theme) -> Option<AnyElement> {
-    let url = pr_status::normalize_pr_url(url)?;
+/// Status chips shown next to a PR link (state and checks, review, unresolved comments); empty when the link isn't a PR or hasn't been fetched yet.
+pub(super) fn pr_chip(url: &str, cache: &PrCache, theme: &Theme) -> Vec<AnyElement> {
+    let Some(url) = pr_status::normalize_pr_url(url) else { return Vec::new() };
     if cache.error(&url).is_some() {
-        return Some(div().text_color(theme.muted_foreground).child("status unavailable").into_any_element());
+        return vec![div().text_color(theme.muted_foreground).child("status unavailable").into_any_element()];
     }
-    let status = cache.status(&url)?;
+    let Some(status) = cache.status(&url) else { return Vec::new() };
     let color = match (status.state, status.checks) {
         (PrState::Merged, _) => theme.primary,
         (PrState::Closed, _) => theme.muted_foreground,
@@ -83,7 +121,16 @@ pub(super) fn pr_chip(url: &str, cache: &PrCache, theme: &Theme) -> Option<AnyEl
         (_, Checks::Pending) => theme.warning,
         _ => theme.success,
     };
-    Some(tinted_tag(status.label(), color))
+    let review = status.review_label().map(|label| {
+        let color = match status.review {
+            Review::Approved => theme.success,
+            Review::ChangesRequested => theme.danger,
+            _ => theme.info,
+        };
+        tinted_tag(label, color)
+    });
+    let unresolved = status.unresolved_label().map(|label| tinted_tag(label, theme.warning));
+    std::iter::once(tinted_tag(status.label(), color)).chain(review).chain(unresolved).collect()
 }
 
 /// Coloured text on a faint fill of the same colour, readable in both themes.

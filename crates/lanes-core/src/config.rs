@@ -155,32 +155,42 @@ pub enum TerminalMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactType {
-    /// A file in the ticket's artifacts folder.
+    /// A markdown file in the ticket's artifacts folder.
     File,
     /// A short value saved with `lanes artifact set`.
     Text,
+    /// A self-contained HTML page in the ticket's artifacts folder, opened in the default browser.
+    Html,
+}
+
+impl ArtifactType {
+    /// Whether the artifact lives in a file (markdown or HTML) rather than as a stored value.
+    pub fn is_file(self) -> bool {
+        matches!(self, Self::File | Self::Html)
+    }
 }
 
 /// Something one stage produces and later stages consume.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct ArtifactDef {
-    /// "file" or "text".
+    /// "file", "text" or "html".
     #[serde(rename = "type")]
     pub kind: ArtifactType,
     /// Shown to both sides: the producing stage is told what to write, the consuming stage what it is reading.
     #[serde(default)]
     pub description: String,
-    /// Files only: paste the content into the next stage's brief instead of just giving its path.
+    /// Markdown files only: paste the content into the next stage's brief instead of just giving its path.
     #[serde(default)]
     pub inline: bool,
-    /// Files only: name inside the ticket's artifacts folder (default "<name>.md").
+    /// File and HTML artifacts: name inside the ticket's artifacts folder (default "<name>.md", or "<name>.html").
     #[serde(default, rename = "path")]
     pub file_name: Option<String>,
 }
 
 impl ArtifactDef {
     pub fn file_name_for(&self, name: &str) -> String {
-        self.file_name.clone().unwrap_or_else(|| format!("{name}.md"))
+        let extension = if self.kind == ArtifactType::Html { "html" } else { "md" };
+        self.file_name.clone().unwrap_or_else(|| format!("{name}.{extension}"))
     }
 }
 
@@ -397,6 +407,9 @@ path = "review-notes.md"
         assert!(!config.column("backlog").unwrap().has_session());
         assert_eq!(config.artifacts["notes"].file_name_for("notes"), "review-notes.md");
         assert_eq!(config.artifacts["plan"].file_name_for("plan"), "plan.md");
+        let html = BoardConfig::parse("[artifacts.mockup]\ntype = \"html\"\n[[columns]]\nid = \"a\"\n").unwrap();
+        assert_eq!(html.artifacts["mockup"].file_name_for("mockup"), "mockup.html");
+        assert!(ArtifactType::Html.is_file() && ArtifactType::File.is_file() && !ArtifactType::Text.is_file());
         let consumed: Vec<_> = config.column("dev").unwrap().consumed().collect();
         assert_eq!(consumed[1], ArtifactRef { name: "notes", optional: true });
     }

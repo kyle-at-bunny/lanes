@@ -20,6 +20,7 @@ cleanup_on_done = false      # offer "Finish & clean up" automatically when a ca
 # Artifacts are the only thing that moves between columns.
 # type = "file" -> a markdown file in the ticket's artifacts folder
 # type = "text" -> a short value saved with `lanes artifact set <name> "<text>"`
+# type = "html" -> a self-contained HTML page (mockups, reports), opened in your browser
 # The description tells the producing session what to write and the consuming session what it is.
 
 [artifacts.plan]

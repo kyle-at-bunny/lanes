@@ -151,6 +151,7 @@ impl LanesApp {
                 render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() })
             }
             (None, Some(text), ArtifactType::File) => render_file_content(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() }),
+            (None, Some(text), ArtifactType::Html) => render_html_summary(text, &theme),
         };
         v_flex()
             .gap_1()
@@ -207,7 +208,7 @@ impl LanesApp {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let provenance = entry.provenance.as_ref().map(|p| p.describe(&self.board.config, now_unix()));
-        let hidden_lines = entry.content.as_ref().filter(|_| collapsed).map(|text| line_count_label(text));
+        let hidden_lines = entry.content.as_ref().filter(|_| collapsed && entry.kind != ArtifactType::Html).map(|text| line_count_label(text));
         h_flex()
             .flex_wrap()
             .items_center()
@@ -226,6 +227,22 @@ impl LanesApp {
         let (ticket_id, name) = (ticket.id.clone(), entry.name.clone());
         let mut buttons = Vec::new();
         match (&entry.path, entry.kind) {
+            (Some(path), ArtifactType::Html) => {
+                if entry.is_present() {
+                    let page = path.clone();
+                    buttons.push(
+                        Button::new(id("browse"))
+                            .label("Open in browser")
+                            .ghost()
+                            .xsmall()
+                            .tooltip("Open with the program Windows uses for .html files, normally your default browser")
+                            .on_click(move |_, _, _| open_in_shell(&page))
+                            .into_any_element(),
+                    );
+                }
+                let folder = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+                buttons.push(Button::new(id("folder")).label("Open folder").ghost().xsmall().on_click(move |_, _, _| open_in_shell(&folder)).into_any_element());
+            }
             (Some(path), ArtifactType::File) => {
                 let path = path.clone();
                 buttons.push(
@@ -280,6 +297,15 @@ impl LanesApp {
                 }))),
         )
     }
+}
+
+/// HTML artifacts aren't rendered in the panel; they're pages to open in the browser.
+fn render_html_summary(content: &str, theme: &Theme) -> AnyElement {
+    let size = match content.len() {
+        n if n < 1024 => format!("{n} bytes"),
+        n => format!("{} KB", n.div_ceil(1024)),
+    };
+    div().text_xs().text_color(theme.muted_foreground).child(format!("HTML page, {size}. Use Open in browser to view it.")).into_any_element()
 }
 
 fn line_count_label(text: &str) -> String {

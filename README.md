@@ -31,8 +31,8 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 ## Features
 
 - **One session per ticket per stage.** Each column has its own prompt template, working directory, model and permission mode. Sessions resume by ID when a ticket comes back. **Request handoff** asks a running session to write its stage outputs, and **Suspend** stops it so you can resume it later.
-- **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file or a short piece of text. Each new session gets the ticket brief and its inputs as context and waits for your first message (or starts straight away with `start = "prompt"`). Lanes warns you if you move a ticket on before its outputs exist.
-- **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, clickable PR links and repo folders, and PR state and CI results via `gh` (with a card badge like "2 PRs · 1 failing"). Collapse a long artifact such as the plan to its header with ▾; Lanes remembers which artifacts you keep collapsed.
+- **Explicit hand-offs.** Columns declare the artifacts they `consume` and `produce`: a markdown file, a short piece of text, or an HTML page (mockups, reports) that opens in your browser. Each new session gets the ticket brief and its inputs as context and waits for your first message (or starts straight away with `start = "prompt"`). Lanes warns you if you move a ticket on before its outputs exist.
+- **Artifacts tab.** A stage's inputs and outputs, who wrote each one and when, markdown rendering, inline editing of text artifacts, clickable PR links and repo folders, and PR state, CI results, review decision and unresolved comments via `gh`, shown next to each link and under the ticket header (with a card badge like "1 PR · 1 open · changes requested · 2 unresolved"). Collapse a long artifact such as the plan to its header with ▾; Lanes remembers which artifacts you keep collapsed.
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
@@ -66,13 +66,13 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 
 ## Quick start
 
-> **Status: early (0.x).** Lanes is used daily on Windows by its author, but the board format and features may still change between releases. See [ROADMAP.md](ROADMAP.md) for what's planned.
+> **Status: early (0.x).** Lanes is used daily on Windows by its author, but the board format and features may still change between releases.
 
 ### Requirements
 
 - **Windows 10 or 11.** Lanes is developed and tested on Windows. macOS and Linux are untested; see [Platform support](#platform-support).
 - **[Claude Code](https://docs.claude.com/en/docs/claude-code)**, installed and logged in. Run `claude`, then `/login`, once in a normal terminal.
-- **Optional:** the [GitHub CLI](https://cli.github.com) (`gh`), logged in, for pull request state and CI results on PR links.
+- **Optional:** the [GitHub CLI](https://cli.github.com) (`gh`), logged in, for pull request state, CI, reviews and unresolved comments on PR links.
 - **Building from source** additionally needs:
   - [Rust](https://rustup.rs) (stable, MSVC toolchain);
   - the Visual Studio C++ build tools with a Windows 10/11 SDK (the "Desktop development with C++" workload).
@@ -243,7 +243,7 @@ In `~/.lanes` (board, prompts, tickets, artifacts, Lanes state) and in Claude Co
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test and style notes, and [ROADMAP.md](ROADMAP.md) for where Lanes is heading.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test and style notes.
 
 ## Acknowledgements
 

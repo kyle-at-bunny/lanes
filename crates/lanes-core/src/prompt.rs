@@ -107,6 +107,10 @@ impl PromptBuilder<'_> {
                 (None, _) => {
                     let _ = writeln!(text, "<artifact name=\"{}\" status=\"missing\">{}</artifact>\n", artifact.name, def.description);
                 }
+                (Some(_), ArtifactType::Html) => {
+                    let path = portable(&store.file_path(artifact.name, def));
+                    let _ = writeln!(text, "<artifact name=\"{}\" path=\"{path}\">{} (an HTML page; read the file)</artifact>\n", artifact.name, def.description);
+                }
                 (Some(_), ArtifactType::File) if !def.inline => {
                     let path = portable(&store.file_path(artifact.name, def));
                     let _ = writeln!(text, "<artifact name=\"{}\" path=\"{path}\">{} (read the file)</artifact>\n", artifact.name, def.description);
@@ -135,6 +139,13 @@ impl PromptBuilder<'_> {
             match def.kind {
                 ArtifactType::File => {
                     let _ = writeln!(text, "  Write it as a markdown file at `{}`.", portable(&store.file_path(artifact.name, def)));
+                }
+                ArtifactType::Html => {
+                    let _ = writeln!(
+                        text,
+                        "  Write it as a single self-contained HTML page at `{}` (inline CSS and scripts, no local assets); the user opens it in their browser.",
+                        portable(&store.file_path(artifact.name, def))
+                    );
                 }
                 ArtifactType::Text => {
                     let _ = writeln!(text, "  Save it by running `{lanes} {} \"<value>\"` (pipe multi-line values to `{lanes} {} -`).", artifact.name, artifact.name);
@@ -165,15 +176,19 @@ description = "branch name"
 [artifacts.notes]
 type = "file"
 description = "review notes"
+[artifacts.mockup]
+type = "html"
+inline = true
+description = "a clickable mockup"
 [[columns]]
 id = "plan"
 cwd = "."
 prompt = "prompts/plan.md"
-produces = ["plan", "branch"]
+produces = ["plan", "branch", "mockup"]
 [[columns]]
 id = "dev"
 cwd = "."
-consumes = ["plan", "spec", "branch", "notes?"]
+consumes = ["plan", "spec", "branch", "notes?", "mockup?"]
 "#;
 
     fn fixture() -> (tempfile::TempDir, LanesHome, BoardConfig, Ticket) {
@@ -208,6 +223,21 @@ consumes = ["plan", "spec", "branch", "notes?"]
         assert!(prompt.contains("Details here"));
         assert!(prompt.contains("Step one"));
         assert!(!builder.system_prompt().unwrap().contains("Details here"));
+    }
+
+    #[test]
+    fn html_artifacts_are_written_as_pages_and_passed_by_path() {
+        let (_dir, home, config, ticket) = fixture();
+        let plan = PromptBuilder { home: &home, config: &config, ticket: &ticket, column: config.column("plan").unwrap(), lanes_exe: Path::new("lanes") };
+        let outputs = plan.system_prompt().unwrap();
+        assert!(outputs.contains("self-contained HTML page at `"), "{outputs}");
+        assert!(outputs.contains("artifacts/mockup.html`"), "{outputs}");
+
+        ArtifactStore::new(&home, &config, "T-9").write("mockup", "<html><body>big page</body></html>").unwrap();
+        let dev = PromptBuilder { column: config.column("dev").unwrap(), ..plan };
+        let kickoff = dev.kickoff().unwrap();
+        assert!(kickoff.contains("mockup.html\">a clickable mockup (an HTML page; read the file)"), "{kickoff}");
+        assert!(!kickoff.contains("big page"), "inline is ignored for HTML");
     }
 
     #[test]

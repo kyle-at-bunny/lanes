@@ -855,7 +855,8 @@ impl LanesApp {
             .child(self.render_session_actions(ticket, terminal.as_ref(), cx))
             .when_some(self.render_folder_row(ticket, cx), |this, row| this.child(row))
             .when_some(self.render_column_actions(ticket, cx), |this, actions| this.child(actions))
-            .when_some(self.render_artifact_summary(ticket, cx), |this, summary| this.child(summary));
+            .when_some(self.render_artifact_summary(ticket, cx), |this, summary| this.child(summary))
+            .when_some(self.render_pr_links(&ticket.id, cx), |this, prs| this.child(prs));
         v_flex()
             .size_full()
             .border_l_1()

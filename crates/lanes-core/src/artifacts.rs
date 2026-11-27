@@ -31,7 +31,7 @@ impl<'a> ArtifactStore<'a> {
     pub fn read(&self, name: &str) -> Result<Option<String>> {
         let def = self.def(name)?;
         let content = match def.kind {
-            ArtifactType::File => std::fs::read_to_string(self.file_path(name, def)).ok(),
+            ArtifactType::File | ArtifactType::Html => std::fs::read_to_string(self.file_path(name, def)).ok(),
             ArtifactType::Text => self.read_text_values()?.remove(name),
         };
         Ok(content.filter(|c| !c.trim().is_empty()))
@@ -45,7 +45,7 @@ impl<'a> ArtifactStore<'a> {
     pub fn write_by(&self, name: &str, content: &str, by: Option<&str>) -> Result<()> {
         let def = self.def(name)?;
         match def.kind {
-            ArtifactType::File => write_atomic(&self.file_path(name, def), content.as_bytes())?,
+            ArtifactType::File | ArtifactType::Html => write_atomic(&self.file_path(name, def), content.as_bytes())?,
             ArtifactType::Text => self.write_text_value(name, content)?,
         }
         timeline::record_by(self.home, self.ticket_id, EventKind::ArtifactWritten, name, by)
@@ -59,7 +59,7 @@ impl<'a> ArtifactStore<'a> {
         self.config
             .artifacts
             .iter()
-            .filter(|(_, def)| def.kind == ArtifactType::File)
+            .filter(|(_, def)| def.kind.is_file())
             .find(|(name, def)| same_dir && def.file_name_for(name).eq_ignore_ascii_case(file_name))
             .map(|(name, _)| name.as_str())
     }

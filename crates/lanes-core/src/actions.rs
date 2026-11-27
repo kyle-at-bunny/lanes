@@ -60,7 +60,7 @@ fn artifact_values(home: &LanesHome, config: &BoardConfig, ticket_id: &str) -> R
     let mut values = BTreeMap::new();
     for (name, def) in &config.artifacts {
         let value = match def.kind {
-            ArtifactType::File => store.file_path(name, def).to_string_lossy().into_owned(),
+            ArtifactType::File | ArtifactType::Html => store.file_path(name, def).to_string_lossy().into_owned(),
             ArtifactType::Text => store.read(name)?.unwrap_or_default(),
         };
         values.insert(name.clone(), value);

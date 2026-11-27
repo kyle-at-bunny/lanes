@@ -25,12 +25,24 @@ pub enum Checks {
     Failing,
 }
 
+/// GitHub's review decision, which accounts for required reviewers and branch protection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Review {
+    None,
+    Required,
+    Approved,
+    ChangesRequested,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrStatus {
     pub url: String,
     pub number: u64,
     pub state: PrState,
     pub checks: Checks,
+    pub review: Review,
+    /// Review threads not yet resolved; None when they couldn't be fetched or the PR is finished.
+    pub unresolved: Option<u32>,
 }
 
 impl PrStatus {
@@ -54,6 +66,28 @@ impl PrStatus {
         };
         format!("{state}{checks}")
     }
+
+    /// e.g. "approved", "changes requested"; only for open PRs.
+    pub fn review_label(&self) -> Option<&'static str> {
+        match (self.is_open(), self.review) {
+            (false, _) | (_, Review::None) => None,
+            (true, Review::Required) => Some("review needed"),
+            (true, Review::Approved) => Some("approved"),
+            (true, Review::ChangesRequested) => Some("changes requested"),
+        }
+    }
+
+    /// e.g. "2 unresolved comments"; only when an open PR has some.
+    pub fn unresolved_label(&self) -> Option<String> {
+        let count = self.unresolved.filter(|n| *n > 0 && self.is_open())?;
+        Some(format!("{count} unresolved comment{}", if count == 1 { "" } else { "s" }))
+    }
+
+    /// Everything known about the PR in one line, e.g. "open · checks passing · approved · 1 unresolved comment".
+    pub fn full_label(&self) -> String {
+        let parts = [Some(self.label()), self.review_label().map(str::to_string), self.unresolved_label()];
+        parts.into_iter().flatten().collect::<Vec<_>>().join(" · ")
+    }
 }
 
 /// The canonical `https://<host>/<owner>/<repo>/pull/<n>` form of a pull request URL, or None if it isn't one.
@@ -63,6 +97,13 @@ pub fn normalize_pr_url(url: &str) -> Option<String> {
     let [host, owner, repo, "pull", number, ..] = parts.as_slice() else { return None };
     let valid = !host.is_empty() && !owner.is_empty() && !repo.is_empty() && !number.is_empty() && number.chars().all(|c| c.is_ascii_digit());
     valid.then(|| format!("https://{host}/{owner}/{repo}/pull/{number}"))
+}
+
+/// A compact name for a pull request link, e.g. "app#12".
+pub fn short_name(url: &str) -> Option<String> {
+    let normalized = normalize_pr_url(url)?;
+    let (_, _, repo, number) = pr_parts(&normalized)?;
+    Some(format!("{repo}#{number}"))
 }
 
 /// Every pull request linked from the ticket's artifacts, in order of first appearance.
@@ -82,14 +123,44 @@ pub fn pr_urls(home: &LanesHome, config: &BoardConfig, ticket_id: &str) -> Vec<S
         .collect()
 }
 
-/// Asks the GitHub CLI for the pull request's state and check results.
+/// Asks the GitHub CLI for the pull request's state, checks and review, plus its unresolved threads while it's open.
 pub fn fetch(url: &str) -> Result<PrStatus> {
-    let output =
-        gh().args(["pr", "view", url, "--json", "number,state,isDraft,statusCheckRollup"]).output().context("running gh (is the GitHub CLI installed and on PATH?)")?;
-    if !output.status.success() {
-        bail!("gh pr view {url}: {}", String::from_utf8_lossy(&output.stderr).trim());
+    let mut status = parse_gh_json(url, &run_gh(&["pr", "view", url, "--json", "number,state,isDraft,statusCheckRollup,reviewDecision"])?)?;
+    if status.is_open() {
+        status.unresolved = fetch_unresolved(url).ok();
     }
-    parse_gh_json(url, &serde_json::from_slice(&output.stdout)?)
+    Ok(status)
+}
+
+const THREADS_QUERY: &str =
+    "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}";
+
+/// Unresolved review threads come only from the GraphQL API; `gh pr view` doesn't expose them.
+fn fetch_unresolved(url: &str) -> Result<u32> {
+    let (host, owner, repo, number) = pr_parts(url).context("not a pull request URL")?;
+    let query = format!("query={THREADS_QUERY}");
+    let (owner, repo, number) = (format!("owner={owner}"), format!("name={repo}"), format!("number={number}"));
+    let json = run_gh(&["api", "graphql", "--hostname", host, "-f", &query, "-F", &owner, "-F", &repo, "-F", &number])?;
+    parse_unresolved(&json)
+}
+
+fn run_gh(args: &[&str]) -> Result<Value> {
+    let output = gh().args(args).output().context("running gh (is the GitHub CLI installed and on PATH?)")?;
+    if !output.status.success() {
+        bail!("gh {}: {}", args.first().copied().unwrap_or_default(), String::from_utf8_lossy(&output.stderr).trim());
+    }
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn pr_parts(url: &str) -> Option<(&str, &str, &str, &str)> {
+    let mut parts = url.strip_prefix("https://")?.split('/');
+    let (host, owner, repo, _, number) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    Some((host, owner, repo, number))
+}
+
+pub fn parse_unresolved(json: &Value) -> Result<u32> {
+    let threads = json.pointer("/data/repository/pullRequest/reviewThreads/nodes").and_then(Value::as_array).context("gh output has no review threads")?;
+    Ok(threads.iter().filter(|t| t.get("isResolved").and_then(Value::as_bool) == Some(false)).count() as u32)
 }
 
 pub fn parse_gh_json(url: &str, json: &Value) -> Result<PrStatus> {
@@ -101,7 +172,13 @@ pub fn parse_gh_json(url: &str, json: &Value) -> Result<PrStatus> {
         _ => PrState::Open,
     };
     let checks = json.get("statusCheckRollup").and_then(Value::as_array).map(|items| rollup(items)).unwrap_or(Checks::None);
-    Ok(PrStatus { url: url.to_string(), number, state, checks })
+    let review = match json.get("reviewDecision").and_then(Value::as_str) {
+        Some("APPROVED") => Review::Approved,
+        Some("CHANGES_REQUESTED") => Review::ChangesRequested,
+        Some("REVIEW_REQUIRED") => Review::Required,
+        _ => Review::None,
+    };
+    Ok(PrStatus { url: url.to_string(), number, state, checks, review, unresolved: None })
 }
 
 /// Combines check runs and commit statuses: any failure wins, then anything still running.
@@ -132,7 +209,7 @@ pub enum Tone {
     Done,
 }
 
-/// A card badge such as "2 PRs · 1 failing".
+/// A card badge such as "2 PRs · 1 failing · changes requested · 3 unresolved".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrSummary {
     pub text: String,
@@ -156,7 +233,31 @@ pub fn summarize(statuses: &[&PrStatus]) -> Option<PrSummary> {
         _ => ("closed".to_string(), Tone::Done),
     };
     let noun = if statuses.len() == 1 { "PR" } else { "PRs" };
-    Some(PrSummary { text: format!("{} {noun} · {detail}", statuses.len()), tone })
+    let mut text = format!("{} {noun} · {detail}", statuses.len());
+    let review = review_summary(statuses);
+    let unresolved: u32 = statuses.iter().filter(|s| s.is_open()).filter_map(|s| s.unresolved).sum();
+    if let Some(review) = review {
+        text.push_str(&format!(" · {review}"));
+    }
+    if unresolved > 0 {
+        text.push_str(&format!(" · {unresolved} unresolved"));
+    }
+    let tone = match (tone, review, unresolved) {
+        (Tone::Failing, _, _) | (_, Some("changes requested"), _) => Tone::Failing,
+        (Tone::Pending, _, _) | (_, _, 1..) => Tone::Pending,
+        (tone, _, _) => tone,
+    };
+    Some(PrSummary { text, tone })
+}
+
+/// The review state worth a card's room: changes requested on any open PR, or every open PR approved.
+fn review_summary(statuses: &[&PrStatus]) -> Option<&'static str> {
+    let open: Vec<_> = statuses.iter().filter(|s| s.is_open()).collect();
+    match () {
+        _ if open.iter().any(|s| s.review == Review::ChangesRequested) => Some("changes requested"),
+        _ if !open.is_empty() && open.iter().all(|s| s.review == Review::Approved) => Some("approved"),
+        _ => None,
+    }
 }
 
 const OPEN_TTL: u64 = 60;
@@ -238,7 +339,7 @@ mod tests {
     use serde_json::json;
 
     fn pr(number: u64, state: PrState, checks: Checks) -> PrStatus {
-        PrStatus { url: format!("https://github.com/o/r/pull/{number}"), number, state, checks }
+        PrStatus { url: format!("https://github.com/o/r/pull/{number}"), number, state, checks, review: Review::None, unresolved: None }
     }
 
     #[test]
@@ -247,6 +348,8 @@ mod tests {
         assert_eq!(normalize_pr_url("https://ghe.corp/o/r/pull/3#top").as_deref(), Some("https://ghe.corp/o/r/pull/3"));
         assert_eq!(normalize_pr_url("https://github.com/o/r/issues/12"), None);
         assert_eq!(normalize_pr_url("https://github.com/o/r/pull/abc"), None);
+        assert_eq!(short_name("https://github.com/o/app/pull/12/files").as_deref(), Some("app#12"));
+        assert_eq!(short_name("https://github.com/o/app/issues/12"), None);
     }
 
     #[test]
@@ -279,6 +382,31 @@ mod tests {
     }
 
     #[test]
+    fn parses_review_decision_and_unresolved_threads() {
+        let review = |decision: Value| parse_gh_json("u", &json!({"number": 1, "state": "OPEN", "reviewDecision": decision})).unwrap().review;
+        assert_eq!(review(json!("APPROVED")), Review::Approved);
+        assert_eq!(review(json!("CHANGES_REQUESTED")), Review::ChangesRequested);
+        assert_eq!(review(json!("REVIEW_REQUIRED")), Review::Required);
+        assert_eq!(review(json!("")), Review::None);
+        let threads =
+            json!({"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [{"isResolved": true}, {"isResolved": false}, {"isResolved": false}]}}}}});
+        assert_eq!(parse_unresolved(&threads).unwrap(), 2);
+        assert!(parse_unresolved(&json!({"errors": []})).is_err());
+        assert_eq!(pr_parts("https://ghe.corp/o/r/pull/3"), Some(("ghe.corp", "o", "r", "3")));
+    }
+
+    #[test]
+    fn review_and_comment_labels_only_apply_to_open_prs() {
+        let open = PrStatus { review: Review::ChangesRequested, unresolved: Some(1), ..pr(1, PrState::Open, Checks::Passing) };
+        assert_eq!((open.review_label(), open.unresolved_label().as_deref()), (Some("changes requested"), Some("1 unresolved comment")));
+        assert_eq!(open.full_label(), "open · checks passing · changes requested · 1 unresolved comment");
+        let merged = PrStatus { state: PrState::Merged, ..open.clone() };
+        assert_eq!((merged.review_label(), merged.unresolved_label()), (None, None));
+        let clean = PrStatus { review: Review::Approved, unresolved: Some(0), ..open };
+        assert_eq!((clean.review_label(), clean.unresolved_label()), (Some("approved"), None));
+    }
+
+    #[test]
     fn summarizes_for_the_card_badge() {
         let (failing, running, open) = (pr(1, PrState::Open, Checks::Failing), pr(2, PrState::Draft, Checks::Pending), pr(3, PrState::Open, Checks::Passing));
         let (merged, closed) = (pr(4, PrState::Merged, Checks::Failing), pr(5, PrState::Closed, Checks::None));
@@ -289,6 +417,13 @@ mod tests {
         assert_eq!(text(&[&merged]), Some(("1 PR · merged".into(), Tone::Done)));
         assert_eq!(text(&[&merged, &closed]), Some(("2 PRs · closed".into(), Tone::Done)));
         assert_eq!(text(&[]), None);
+
+        let reviewed = |review, unresolved| PrStatus { review, unresolved, ..pr(6, PrState::Open, Checks::Passing) };
+        let (changes, approved, commented) = (reviewed(Review::ChangesRequested, Some(2)), reviewed(Review::Approved, Some(0)), reviewed(Review::Approved, Some(3)));
+        assert_eq!(text(&[&changes]), Some(("1 PR · 1 open · changes requested · 2 unresolved".into(), Tone::Failing)));
+        assert_eq!(text(&[&approved]), Some(("1 PR · 1 open · approved".into(), Tone::Neutral)));
+        assert_eq!(text(&[&commented, &merged]), Some(("2 PRs · 1 open · approved · 3 unresolved".into(), Tone::Pending)));
+        assert_eq!(text(&[&approved, &open]), Some(("2 PRs · 2 open".into(), Tone::Neutral)));
     }
 
     #[test]
