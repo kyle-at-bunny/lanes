@@ -55,17 +55,21 @@ impl LanesApp {
         .detach();
     }
 
-    /// A card badge like "2 PRs · 1 failing".
+    /// The card's PR row: chips like "2 PRs · 1 failing", "changes requested", "3 unresolved" that wrap on a narrow card.
     pub(super) fn pr_badge(&self, ticket_id: &str, cx: &App) -> Option<AnyElement> {
         let summary = pr_status::summarize(&self.prs.statuses(ticket_id))?;
         let theme = cx.theme();
-        let tag = match summary.tone {
-            Tone::Failing => tinted_tag(summary.text, theme.danger),
-            Tone::Pending => tinted_tag(summary.text, theme.warning),
-            Tone::Neutral => tinted_tag(summary.text, theme.info),
-            Tone::Done => Tag::secondary().xsmall().child(summary.text).into_any_element(),
-        };
-        Some(tag)
+        let chips: Vec<_> = summary
+            .parts
+            .into_iter()
+            .map(|part| match summary.tone {
+                Tone::Failing => tinted_tag(part, theme.danger),
+                Tone::Pending => tinted_tag(part, theme.warning),
+                Tone::Neutral => tinted_tag(part, theme.info),
+                Tone::Done => Tag::secondary().xsmall().child(part).into_any_element(),
+            })
+            .collect();
+        Some(h_flex().flex_wrap().gap_1().children(chips).into_any_element())
     }
 
     /// The ticket's PR links under its header, each as a short link with its status chips.

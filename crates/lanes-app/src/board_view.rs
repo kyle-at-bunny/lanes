@@ -760,6 +760,7 @@ impl LanesApp {
             .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { title: dragged.title.clone() }))
             .child(h_flex().justify_between().child(card_id_label(ticket, cx)).child(session_tag(&session, cx)))
             .child(div().text_sm().child(ticket.title.clone()))
+            .when_some(prs, |this, badge| this.child(badge))
             .child(
                 h_flex()
                     .gap_2()
@@ -767,7 +768,6 @@ impl LanesApp {
                     .text_color(theme.muted_foreground)
                     .when_some(context, |this, pct| this.child(context_label(pct, cx)))
                     .when_some(outputs, |this, outputs| this.child(outputs))
-                    .when_some(prs, |this, badge| this.child(badge))
                     .child(div().flex_1())
                     .child(Button::new(SharedString::from(format!("left-{}", ticket.id))).label("‹").ghost().xsmall().on_click(cx.listener(
                         move |this, _, window, cx| {

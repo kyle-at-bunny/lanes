@@ -212,8 +212,15 @@ pub enum Tone {
 /// A card badge such as "2 PRs · 1 failing · changes requested · 3 unresolved".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrSummary {
-    pub text: String,
+    /// Separate chips, so a narrow card can wrap them: the count and state, then review, then unresolved comments.
+    pub parts: Vec<String>,
     pub tone: Tone,
+}
+
+impl PrSummary {
+    pub fn text(&self) -> String {
+        self.parts.join(" · ")
+    }
 }
 
 pub fn summarize(statuses: &[&PrStatus]) -> Option<PrSummary> {
@@ -233,21 +240,19 @@ pub fn summarize(statuses: &[&PrStatus]) -> Option<PrSummary> {
         _ => ("closed".to_string(), Tone::Done),
     };
     let noun = if statuses.len() == 1 { "PR" } else { "PRs" };
-    let mut text = format!("{} {noun} · {detail}", statuses.len());
     let review = review_summary(statuses);
     let unresolved: u32 = statuses.iter().filter(|s| s.is_open()).filter_map(|s| s.unresolved).sum();
-    if let Some(review) = review {
-        text.push_str(&format!(" · {review}"));
-    }
+    let mut parts = vec![format!("{} {noun} · {detail}", statuses.len())];
+    parts.extend(review.map(str::to_string));
     if unresolved > 0 {
-        text.push_str(&format!(" · {unresolved} unresolved"));
+        parts.push(format!("{unresolved} unresolved"));
     }
     let tone = match (tone, review, unresolved) {
         (Tone::Failing, _, _) | (_, Some("changes requested"), _) => Tone::Failing,
         (Tone::Pending, _, _) | (_, _, 1..) => Tone::Pending,
         (tone, _, _) => tone,
     };
-    Some(PrSummary { text, tone })
+    Some(PrSummary { parts, tone })
 }
 
 /// The review state worth a card's room: changes requested on any open PR, or every open PR approved.
@@ -410,17 +415,19 @@ mod tests {
     fn summarizes_for_the_card_badge() {
         let (failing, running, open) = (pr(1, PrState::Open, Checks::Failing), pr(2, PrState::Draft, Checks::Pending), pr(3, PrState::Open, Checks::Passing));
         let (merged, closed) = (pr(4, PrState::Merged, Checks::Failing), pr(5, PrState::Closed, Checks::None));
-        let text = |list: &[&PrStatus]| summarize(list).map(|s| (s.text, s.tone));
+        let text = |list: &[&PrStatus]| summarize(list).map(|s| (s.text(), s.tone));
         assert_eq!(text(&[&failing, &running]), Some(("2 PRs · 1 failing".into(), Tone::Failing)));
         assert_eq!(text(&[&running, &open]), Some(("2 PRs · 1 running".into(), Tone::Pending)));
         assert_eq!(text(&[&open, &merged]), Some(("2 PRs · 1 open".into(), Tone::Neutral)));
         assert_eq!(text(&[&merged]), Some(("1 PR · merged".into(), Tone::Done)));
         assert_eq!(text(&[&merged, &closed]), Some(("2 PRs · closed".into(), Tone::Done)));
         assert_eq!(text(&[]), None);
+        assert_eq!(summarize(&[&failing, &running]).unwrap().parts, ["2 PRs · 1 failing"]);
 
         let reviewed = |review, unresolved| PrStatus { review, unresolved, ..pr(6, PrState::Open, Checks::Passing) };
         let (changes, approved, commented) = (reviewed(Review::ChangesRequested, Some(2)), reviewed(Review::Approved, Some(0)), reviewed(Review::Approved, Some(3)));
         assert_eq!(text(&[&changes]), Some(("1 PR · 1 open · changes requested · 2 unresolved".into(), Tone::Failing)));
+        assert_eq!(summarize(&[&changes]).unwrap().parts, ["1 PR · 1 open", "changes requested", "2 unresolved"]);
         assert_eq!(text(&[&approved]), Some(("1 PR · 1 open · approved".into(), Tone::Neutral)));
         assert_eq!(text(&[&commented, &merged]), Some(("2 PRs · 1 open · approved · 3 unresolved".into(), Tone::Pending)));
         assert_eq!(text(&[&approved, &open]), Some(("2 PRs · 2 open".into(), Tone::Neutral)));
