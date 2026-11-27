@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{Platform, find_program, is_bare_name, starts_with_home};
+use super::{Platform, find_program, starts_with_home};
 
 pub struct Unix;
 
@@ -23,11 +23,8 @@ impl Platform for Unix {
         let _ = Command::new(opener).arg(path).spawn();
     }
 
-    fn resolve_program(&self, name: &str) -> PathBuf {
-        if !is_bare_name(name) {
-            return PathBuf::from(name);
-        }
-        find_program(&[name.to_string()]).unwrap_or_else(|| PathBuf::from(name))
+    fn find_on_path(&self, name: &str) -> Option<PathBuf> {
+        find_program(&[name.to_string()])
     }
 
     fn external_terminal(&self, title: &str, cwd: &Path, program: &Path, args: &[String]) -> Option<Command> {

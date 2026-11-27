@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -85,6 +85,24 @@ struct LoadedTranscript {
     session_id: Uuid,
     agent: AgentKind,
     entries: Vec<TranscriptEntry>,
+    /// A read is running in the background; `entries` still holds the previous read of the same session, if any.
+    loading: bool,
+}
+
+/// What reading a session's transcript needs, owned so the read can run off the UI thread.
+struct TranscriptRequest {
+    agent: AgentKind,
+    program: String,
+    agent_session_id: String,
+    cwd: PathBuf,
+    reported_path: Option<String>,
+}
+
+impl TranscriptRequest {
+    fn read(&self) -> Vec<TranscriptEntry> {
+        let source = TranscriptSource { program: &self.program, agent_session_id: &self.agent_session_id, cwd: &self.cwd, reported_path: self.reported_path.as_deref() };
+        agent::get(self.agent).read_transcript(&source)
+    }
 }
 
 fn event_label(kind: EventKind) -> &'static str {
@@ -223,16 +241,43 @@ impl LanesApp {
         cx.notify();
     }
 
+    /// Shows the stage's transcript, read in the background because some agents export it through their CLI.
     fn load_transcript(&mut self, ticket_id: &str, column_id: &str, cx: &mut Context<Self>) {
-        self.transcript = self.ticket(ticket_id).and_then(|ticket| ticket.session(column_id)).map(|record| {
-            let reported = self.board.states.hook(&record.id).and_then(|h| h.transcript_path);
-            let agent_session_id = record.agent_session_id();
-            let program = self.board.config.agent_program(record.agent);
-            let source = TranscriptSource { program: &program, agent_session_id: &agent_session_id, cwd: &record.cwd, reported_path: reported.as_deref() };
-            let entries = agent::get(record.agent).read_transcript(&source);
-            LoadedTranscript { ticket_id: ticket_id.to_string(), column_id: column_id.to_string(), session_id: record.id, agent: record.agent, entries }
+        let Some(record) = self.ticket(ticket_id).and_then(|ticket| ticket.session(column_id)).cloned() else {
+            self.transcript = None;
+            return cx.notify();
+        };
+        let request = TranscriptRequest {
+            agent: record.agent,
+            program: self.board.config.agent_program(record.agent).unwrap_or_default(),
+            agent_session_id: record.agent_session_id(),
+            cwd: record.cwd.clone(),
+            reported_path: self.board.states.hook(&record.id).and_then(|h| h.transcript_path),
+        };
+        let previous = self.transcript.take().filter(|t| t.session_id == record.id).map(|t| t.entries).unwrap_or_default();
+        self.transcript = Some(LoadedTranscript {
+            ticket_id: ticket_id.to_string(),
+            column_id: column_id.to_string(),
+            session_id: record.id,
+            agent: record.agent,
+            entries: previous,
+            loading: true,
         });
         cx.notify();
+        let read = cx.background_executor().spawn(async move { request.read() });
+        cx.spawn(async move |this, cx| {
+            let entries = read.await;
+            let _ = this.update(cx, |app, cx| app.finish_transcript(record.id, entries, cx));
+        })
+        .detach();
+    }
+
+    fn finish_transcript(&mut self, session_id: Uuid, entries: Vec<TranscriptEntry>, cx: &mut Context<Self>) {
+        if let Some(loaded) = self.transcript.as_mut().filter(|t| t.session_id == session_id) {
+            loaded.entries = entries;
+            loaded.loading = false;
+            cx.notify();
+        }
     }
 
     /// Runs a column action off the UI thread and reports its result as a toast.
@@ -585,7 +630,9 @@ impl LanesApp {
             .child(div().font_weight(FontWeight::BOLD).child("Lanes"))
             .child(Button::new("new-ticket").label("New ticket").primary().small().on_click(cx.listener(|this, _, window, cx| this.show_new_ticket(window, cx))))
             .child({
-                let button = Button::new("assistant").label("Assistant").small().tooltip("An agent session that can operate and reconfigure this board");
+                let tooltip =
+                    format!("A {} session that can operate and reconfigure this board", lanes_core::agent::get(self.board.config.defaults.agent).display_name());
+                let button = Button::new("assistant").label("Assistant").small().tooltip(tooltip);
                 let button = if self.show_assistant { button.primary() } else { button.outline() };
                 button.on_click(cx.listener(|this, _, window, cx| this.toggle_assistant(window, cx)))
             })
@@ -596,7 +643,9 @@ impl LanesApp {
             .child(div().flex_1())
             .when_some(limits.as_ref().and_then(|l| l.five_hour), |this, limit| this.child(usage_meter("5h", limit, cx)))
             .when_some(limits.as_ref().and_then(|l| l.seven_day), |this, limit| this.child(usage_meter("7d", limit, cx)))
-            .when(limits.is_none(), |this| this.child(div().text_xs().text_color(cx.theme().muted_foreground).child("plan usage appears after the first response")))
+            .when(limits.is_none() && agent::get(self.board.config.defaults.agent).capabilities().usage, |this| {
+                this.child(div().text_xs().text_color(cx.theme().muted_foreground).child("plan usage appears after the first response"))
+            })
             .child({
                 let label = if self.show_sessions { "Back to board" } else { "Sessions" };
                 Button::new("toggle-sessions").label(label).ghost().small().on_click(cx.listener(|this, _, window, cx| this.toggle_sessions(window, cx)))
@@ -744,7 +793,11 @@ impl LanesApp {
         let id = ticket.id.clone();
         let selected = self.selected.as_deref() == Some(ticket.id.as_str());
         let session = self.card_session(ticket, cx);
-        let context = ticket.session(&ticket.column).and_then(|r| self.board.states.status(&r.id)).and_then(|s| s.context_used_pct);
+        let context = ticket
+            .session(&ticket.column)
+            .filter(|r| agent::get(r.agent).capabilities().usage)
+            .and_then(|r| self.board.states.status(&r.id))
+            .and_then(|s| s.context_used_pct);
         let outputs = self.output_summary(ticket);
         let prs = self.pr_badge(&ticket.id, cx);
         let dragged = DraggedTicket { id: ticket.id.clone(), title: format!("{} {}", ticket.id, ticket.title) };
@@ -976,7 +1029,8 @@ impl LanesApp {
                 .child(format!("Transcripts aren't available for {} sessions.", agent::get(loaded.agent).display_name()))
                 .into_any_element(),
             Some(loaded) if loaded.entries.is_empty() => {
-                div().text_sm().text_color(theme.muted_foreground).child("No transcript found for this session yet.").into_any_element()
+                let message = if loaded.loading { "Loading transcript…" } else { "No transcript found for this session yet." };
+                div().text_sm().text_color(theme.muted_foreground).child(message).into_any_element()
             }
             Some(loaded) => v_flex()
                 .gap_2()

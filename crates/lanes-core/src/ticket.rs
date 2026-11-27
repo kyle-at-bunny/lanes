@@ -64,6 +64,11 @@ impl SessionRecord {
 }
 
 impl Ticket {
+    /// The agents that ran this ticket's sessions.
+    pub fn agents(&self) -> impl Iterator<Item = AgentKind> + '_ {
+        self.sessions.values().map(|record| record.agent)
+    }
+
     pub fn session(&self, column: &str) -> Option<&SessionRecord> {
         self.sessions.get(column)
     }

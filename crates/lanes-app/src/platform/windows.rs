@@ -1,4 +1,4 @@
-use gpui_kit::Window;
+use gpui_kit::{App, Window};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 /// Subcommands are run by the agent CLI, so they need the console the GUI subsystem doesn't get by default.
@@ -26,7 +26,7 @@ pub fn show_startup_error(message: &str) {
 }
 
 /// Hides the window completely (no taskbar button), which GPUI has no API for on Windows.
-pub fn set_window_shown(window: &Window, shown: bool) {
+pub fn set_window_shown(window: &Window, _cx: &App, shown: bool) {
     unsafe extern "system" {
         fn ShowWindow(hwnd: isize, command: i32) -> i32;
     }

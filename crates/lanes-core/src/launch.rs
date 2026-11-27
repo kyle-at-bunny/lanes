@@ -37,23 +37,10 @@ impl LaunchSpec {
     }
 }
 
-/// Env vars a parent Claude Code session leaks when Lanes itself was started from one; children must not inherit them.
+/// Env vars that any agent's parent session leaked when Lanes itself was started from one; no child session may inherit them.
 pub fn inherited_session_vars() -> Vec<String> {
-    if std::env::var_os("CLAUDECODE").is_none() {
-        return Vec::new();
-    }
-    std::env::vars_os()
-        .filter_map(|(key, _)| key.into_string().ok())
-        .filter(|key| {
-            let upper = key.to_ascii_uppercase();
-            upper == "CLAUDECODE"
-                || upper == "CLAUDE_PID"
-                || upper == "ANTHROPIC_BASE_URL"
-                || upper.starts_with("CLAUDE_CODE_")
-                || upper.starts_with("CLAUDE_AGENT_SDK_")
-                || upper.starts_with("MCP_")
-        })
-        .collect()
+    let names: Vec<String> = std::env::vars_os().filter_map(|(key, _)| key.into_string().ok()).collect();
+    crate::agent::all().iter().flat_map(|agent| agent.leaked_env_vars(&names)).collect()
 }
 
 fn launch_file(home: &LanesHome, session_id: &Uuid) -> std::path::PathBuf {

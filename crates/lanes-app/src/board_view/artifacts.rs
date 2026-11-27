@@ -301,7 +301,7 @@ fn render_html_summary(content: &str, theme: &Theme) -> AnyElement {
         n if n < 1024 => format!("{n} bytes"),
         n => format!("{} KB", n.div_ceil(1024)),
     };
-    div().text_xs().text_color(theme.muted_foreground).child(format!("HTML page, {size}. Use Open in browser to view it.")).into_any_element()
+    div().text_xs().text_color(theme.muted_foreground).child(format!("HTML page, {size}. Use Open to view it in your browser.")).into_any_element()
 }
 
 fn line_count_label(text: &str) -> String {

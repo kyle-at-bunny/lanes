@@ -1,11 +1,10 @@
 #:schema ./board.schema.json
 # Lanes board configuration. Edit freely; the app reloads it on save.
-# A column with a `cwd` gets one interactive Claude session per ticket.
+# A column with a `cwd` gets one interactive agent session per ticket.
 # Columns without a `cwd` (backlog, done) are plain holding lanes.
 
 [defaults]
 agent = "claude"             # the coding agent CLI that runs new sessions: "claude" | "opencode"
-claude_path = "claude"
 # model = "opus"
 # effort = "medium"
 terminal = "embedded"        # "embedded" | "external" (Windows Terminal tabs)

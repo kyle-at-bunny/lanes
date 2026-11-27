@@ -15,8 +15,15 @@ pub trait Platform: Sync {
     fn quiet_command(&self, program: &str) -> Command;
     /// Opens a file in its default app, or a folder in the file manager.
     fn open(&self, path: &Path);
-    /// Finds a bare program name on PATH (or `~/.local/bin`), so terminals get a runnable file rather than a shim.
-    fn resolve_program(&self, name: &str) -> PathBuf;
+    /// The runnable file for a bare program name on PATH (or `~/.local/bin`), never a shell-script shim.
+    fn find_on_path(&self, name: &str) -> Option<PathBuf>;
+    /// A configured program: bare names are looked up with `find_on_path`, anything else is used as given.
+    fn resolve_program(&self, name: &str) -> PathBuf {
+        if !is_bare_name(name) {
+            return PathBuf::from(name);
+        }
+        self.find_on_path(name).unwrap_or_else(|| PathBuf::from(name))
+    }
     /// A command that opens a new terminal window or tab in `cwd` running `program args`, or None when unsupported.
     fn external_terminal(&self, title: &str, cwd: &Path, program: &Path, args: &[String]) -> Option<Command>;
     /// Whether two paths name the same file, with the platform's case rules.

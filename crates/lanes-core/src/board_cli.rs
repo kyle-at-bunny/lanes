@@ -213,6 +213,7 @@ pub fn check_config(home: &LanesHome) -> Vec<String> {
 /// Settings that are valid but have no effect with the board's agent.
 pub fn config_warnings(config: &BoardConfig) -> Vec<String> {
     let agent = crate::agent::get(config.defaults.agent);
+    let missing_program = config.agent_program(config.defaults.agent).err().map(|err| err.to_string());
     let ignored = agent.ignored_settings();
     let defaults = &config.defaults;
     let board_level = [("model", defaults.model.is_some()), ("effort", defaults.effort.is_some())];
@@ -230,6 +231,7 @@ pub fn config_warnings(config: &BoardConfig) -> Vec<String> {
             agent.display_name()
         ));
     }
+    warnings.extend(missing_program);
     warnings
 }
 
@@ -352,6 +354,8 @@ mod tests {
             "[defaults]
 agent = \"opencode\"
 model = \"opus\"
+[agents.opencode]
+path = \"C:/oc/opencode.exe\"
 [[columns]]
 id = \"dev\"
 cwd = \".\"
@@ -368,6 +372,7 @@ permission_mode = \"plan\"
                 &BoardConfig::parse(
                     "[defaults]
 model = \"opus\"
+claude_path = \"claude\"
 [[columns]]
 id = \"dev\"
 cwd = \".\"

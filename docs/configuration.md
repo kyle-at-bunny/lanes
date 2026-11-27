@@ -28,11 +28,11 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `agent` | `"claude"` | The coding agent CLI that runs new sessions. Sessions that already exist keep the agent that created them. See [Agents](#agents). |
-| `claude_path` | `"claude"` | Claude Code executable; `[agents.claude] path` does the same and wins when both are set. A bare name is looked up on `PATH` (or `~/.local/bin`). |
+| `claude_path` | none | Claude Code executable; `[agents.claude] path` does the same and wins when both are set. See [Agents](#agents) for how the program is found when neither is set. |
 | `model` | none | Default `--model` for every session (e.g. `"opus"`, `"sonnet"`). |
 | `effort` | none | Default `--effort` for every session. |
 | `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one in an external terminal: a Windows Terminal tab, Terminal.app on macOS, or `$TERMINAL` (else `x-terminal-emulator`) on Linux. |
-| `start` | `"wait"` | How a new session starts. `"wait"` puts the ticket brief (title, description, work item link, inputs from earlier stages) into the system prompt and opens Claude on an empty input box, so you set the first task. `"prompt"` sends the brief as the first message, so Claude starts working straight away. Columns can override it. |
+| `start` | `"wait"` | How a new session starts. `"wait"` puts the ticket brief (title, description, work item link, inputs from earlier stages) into the system prompt and opens the agent on an empty input box, so you set the first task. `"prompt"` sends the brief as the first message, so the agent starts working straight away. Columns can override it. |
 | `kickoff_inline_limit` | `6000` | With `start = "prompt"`, briefs longer than this many characters are written to a file, and Claude is asked to read it. |
 | `theme` | `"system"` | `"system"`, `"light"` or `"dark"`. The top-bar button updates this. |
 | `terminal_theme` | `"match"` | `"match"` follows the app theme; `"dark"` keeps terminals dark in light mode. |
@@ -72,7 +72,7 @@ The `description` is shown to both sides: the producing stage is told what to wr
 The ticket panel shows a one-line summary (e.g. "Inputs 2/3 · Outputs 0/1") and flags missing required inputs and outputs. The **Artifacts** tab shows them in full, grouped into **Inputs** (consumed by the current column), **Outputs** (produced by it; missing required ones are highlighted) and a collapsed **Other**.
 
 - **Provenance:** each artifact shows who last wrote it and when, e.g. "written by Dev · 5m ago". `lanes artifact set` records the stage it ran in, and a session's own edits to a file artifact are recorded through its hooks. A file changed outside any session shows "updated … ago".
-- **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** for your editor. **HTML artifacts** show their size, with **Open in browser** (the program Windows opens `.html` files with, normally your default browser) and **Open folder**.
+- **Text artifacts** are shown in full, with **Edit** and **Clear**. **File artifacts** are rendered as markdown, with **Open** (the default program for the file type). **HTML artifacts** show their size, with **Open** (the program your OS opens `.html` files with, normally your default browser) and **Open folder**.
 - **Repository rows:** a line in the form `<absolute repo path> | <branch> | <PR URL or "no PR">` is shown as a row with an **Open folder** button, a branch chip and a clickable PR link. The starter `branch` artifact asks for exactly this format. Other lines are shown as text.
 - **Links:** URLs open in the browser, and local paths (`C:\…` and `\\server\…` on Windows, `/…` elsewhere, and `~/…`) get **Open folder**, plus **Open** for files. Both use whatever program your OS has set for that file type.
 - **Pull request status:** with `pr_provider = "github"` (the default), pull request links (`https://<host>/<owner>/<repo>/pull/<n>`) in any artifact are checked with the [GitHub CLI](https://cli.github.com) (`gh pr view`), so `gh` must be installed and logged in. Set `pr_provider = "none"` to turn this off. Each link gets a chip such as "open · checks failing", "draft" or "merged". While a PR is open it also gets its review decision ("review needed", "approved" or "changes requested") and a count of unresolved review comments, fetched with `gh api graphql`. The ticket panel lists every PR under the artifacts line as a short link (e.g. `app#12`) with the same chips. Cards get a row of chips under the title, like "2 PRs · 1 failing", "changes requested", "3 unresolved", which wrap on narrow cards and turn red for failing checks or requested changes, and **Finish & clean up** warns about PRs that are still open. Open PRs are rechecked every minute, merged and closed ones every 10 minutes. If `gh` fails, the link shows "status unavailable".
@@ -95,14 +95,18 @@ Set an agent's executable under `[agents.<agent>]`:
 path = "C:/tools/claude.exe"
 
 [agents.opencode]
-path = "opencode"
+path = "C:/Users/you/AppData/Roaming/npm/node_modules/@opencode/cli/bin/opencode.exe"
 ```
+
+A path set here is always used. Without one, Lanes looks for the agent's program (`claude`, `opencode`) on `PATH` and in `~/.local/bin`. On Windows only a real `.exe` counts; npm's `.cmd` launchers don't, because cmd.exe cuts the brief off at its first line. When nothing is found, starting a session fails with a message asking for the path, and `lanes config check` warns about it.
+
+OpenCode installed with `npm install -g opencode-ai` has only a launcher on `PATH`, so on Windows set its path to the real exe, under `%AppData%\npm\node_modules\@opencode\cli\bin\`.
 
 `model`, `effort`, `permission_mode` and `extra_args` are passed in the agent's own form. [docs/agents.md](agents.md) explains how to add another agent.
 
 ## `[[columns]]`
 
-Columns appear on the board in the order they are listed. A column **with** a `cwd` runs a Claude session per ticket; a column **without** one (Backlog, Done) is a plain holding lane.
+Columns appear on the board in the order they are listed. A column **with** a `cwd` runs an agent session per ticket; a column **without** one (Backlog, Done) is a plain holding lane.
 
 ```toml
 [[columns]]
@@ -121,11 +125,11 @@ permission_mode = "plan"
 | `id` | Unique identifier, used in ticket files and the CLI. Changing it orphans tickets in that column. |
 | `title` | Display name (defaults to `id`). |
 | `cwd` | Folder the stage's sessions run in. `~` is expanded and templates work, e.g. `"~/worktrees/{{ ticket.id \| lower }}"`. Omit for holding lanes. Tickets can override it; see [Working folders](#working-folders). |
-| `prompt` | Prompt template, relative to the board folder. Appended to Claude's system prompt when the session is created. |
+| `prompt` | Prompt template, relative to the board folder. Appended to the agent's system prompt when the session is created (OpenCode: sent as its first message). |
 | `consumes` / `produces` | Artifact names; see [Artifacts](#artifacts). |
 | `model`, `effort` | Override the defaults for this stage. |
-| `permission_mode` | Claude Code permission mode for this stage, e.g. `"plan"` or `"acceptEdits"`. |
-| `extra_args` | Extra `claude` arguments, e.g. `["--add-dir", "~/projects/shared"]`. |
+| `permission_mode` | Permission mode for this stage, e.g. `"plan"` or `"acceptEdits"` (Claude Code only). |
+| `extra_args` | Extra agent CLI arguments, e.g. `["--add-dir", "~/projects/shared"]`. |
 | `start` | `"wait"` or `"prompt"`; overrides `[defaults] start` for this stage (e.g. `"prompt"` for a QA stage that should just run). |
 | `reentry` | Template for the message used when a ticket returns to this stage with changed inputs. With `start = "wait"` it is typed into Claude's input box without being sent, so you can edit it first. In external terminals, and with `"prompt"`, it is sent. |
 | `handoff` | Template for the message the **Request handoff** button sends, asking the session to write its outputs. |

@@ -58,7 +58,7 @@ pub fn prepare(home: &LanesHome, config: &BoardConfig, lanes_exe: &Path) -> Resu
     Ok(LaunchSpec {
         session_id: record.session_id,
         kind,
-        program: config.agent_program(record.agent),
+        program: config.agent_program(record.agent)?,
         args,
         cwd: home.root().to_path_buf(),
         env: vec![(HOME_ENV.into(), home.root().to_string_lossy().into_owned())],
@@ -122,7 +122,7 @@ mod tests {
     fn first_launch_creates_session_then_resumes_until_reset() {
         let dir = tempfile::tempdir().unwrap();
         let home = LanesHome::new(dir.path());
-        let config = BoardConfig::parse("[[columns]]\nid = \"backlog\"\n").unwrap();
+        let config = BoardConfig::parse("[defaults]\nclaude_path = \"claude\"\n[[columns]]\nid = \"backlog\"\n").unwrap();
         let exe = Path::new("C:/bin/lanes.exe");
 
         let first = prepare(&home, &config, exe).unwrap();

@@ -13,6 +13,11 @@ use crate::pty::{GridSize, PtySession};
 use crate::terminal_view::TerminalView;
 
 impl LanesApp {
+    /// The agent of the board assistant's session, or the board's agent when there is none yet.
+    pub(super) fn assistant_agent(&self) -> lanes_core::agent::AgentKind {
+        assistant::current(&self.board.home).map(|(_, agent, _)| agent).unwrap_or(self.board.config.defaults.agent)
+    }
+
     pub(super) fn board_file_mtime(&self) -> Option<SystemTime> {
         std::fs::metadata(self.board.home.board_file()).and_then(|m| m.modified()).ok()
     }

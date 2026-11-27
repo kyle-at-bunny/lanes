@@ -21,7 +21,7 @@ Everything else is a capability (`Capabilities`). When one is missing, Lanes deg
 
 `crates/lanes-core/src/agent/mod.rs` has the full signatures. Most methods have defaults, so an adapter only overrides what its CLI supports:
 
-- `kind`, `display_name`, `default_program` and `capabilities`.
+- `kind`, `display_name`, `default_program` and `capabilities`. `default_program` is the name looked up on PATH when `[agents.<kind>] path` isn't set.
 - `new_session_id(lanes_id)`: the agent's own id for a new session. It's stored on the session record (`agent_session_id`) when it differs from Lanes' id.
 - `launch_args(request)`: the arguments for a new or resumed session. `LaunchRequest` carries:
   - the agent's session id and whether this is a resume;
@@ -36,6 +36,7 @@ Everything else is a capability (`Capabilities`). When one is missing, Lanes deg
 - `parse_status_line(input)` and `status_line_text(raw, snapshot)`: the same idea for a status line feed (`lanes statusline --agent <kind>`).
 - `transcript_file(source)` and `read_transcript(source)`: find the conversation and convert it to `TranscriptEntry` values. Agents that keep transcripts in a database can shell out to their own export command, as OpenCode does.
 - `retention_days()`: how long the agent keeps its own conversations, for the note in the Sessions view.
+- `leaked_env_vars(names)`: variables a parent session of this agent leaves in Lanes' environment when Lanes is started from inside one (Claude Code's `CLAUDECODE`, `CLAUDE_CODE_*`). They are stripped from every session Lanes launches, whatever its agent.
 
 ## Registering a new agent
 

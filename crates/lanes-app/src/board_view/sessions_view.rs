@@ -85,9 +85,11 @@ impl LanesApp {
     }
 
     fn sessions_of(&self, ticket_id: &str) -> Vec<Uuid> {
-        let on_board = self.ticket(ticket_id).cloned();
-        let archived = self.archived.iter().find(|t| t.id == ticket_id).cloned();
-        on_board.or(archived).map(|t| t.sessions.values().map(|r| r.id).collect()).unwrap_or_default()
+        self.any_ticket(ticket_id).map(|t| t.sessions.values().map(|r| r.id).collect()).unwrap_or_default()
+    }
+
+    fn any_ticket(&self, ticket_id: &str) -> Option<&lanes_core::ticket::Ticket> {
+        self.ticket(ticket_id).or_else(|| self.archived.iter().find(|t| t.id == ticket_id))
     }
 
     pub(super) fn request_assistant_reset(&mut self, cx: &mut Context<Self>) {
@@ -108,6 +110,7 @@ impl LanesApp {
     pub(super) fn render_delete_confirm(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let ticket_id = self.delete_confirm.as_ref()?;
         let sessions = self.sessions_of(ticket_id).len();
+        let agents = lanes_core::agent::names(self.any_ticket(ticket_id).into_iter().flat_map(|t| t.agents()));
         Some(
             h_flex()
                 .flex_wrap()
@@ -116,7 +119,7 @@ impl LanesApp {
                 .gap_3()
                 .bg(cx.theme().danger.opacity(0.15))
                 .child(div().flex_1().min_w_0().child(format!(
-                    "Delete {ticket_id}? This stops its sessions, and permanently removes the ticket, its artifacts and timeline, and Lanes' records of its {sessions} session(s). The agent keeps its own copy of the conversations."
+                    "Delete {ticket_id}? This stops its sessions, and permanently removes the ticket, its artifacts and timeline, and Lanes' records of its {sessions} session(s). {agents} keeps its own copy of the conversations."
                 )))
                 .child(Button::new("confirm-delete").label("Delete ticket").danger().small().on_click(cx.listener(|this, _, window, cx| {
                     this.confirm_delete_ticket(window, cx)

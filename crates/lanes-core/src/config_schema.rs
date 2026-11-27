@@ -69,7 +69,7 @@ mod tests {
         assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
         assert!(schema["required"].as_array().unwrap().iter().any(|k| k == "columns"));
         let text = board_schema();
-        assert!(text.contains("permission_mode") && text.contains("Claude Code permission mode for this stage"));
+        assert!(text.contains("permission_mode") && text.contains("Permission mode for this stage"));
         assert!(text.contains("\"wait\"") && text.contains("\"prompt\""));
     }
 

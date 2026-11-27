@@ -2,7 +2,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{Platform, find_program, is_bare_name, starts_with_home};
+use super::{Platform, find_program, starts_with_home};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -25,12 +25,9 @@ impl Platform for Windows {
         let _ = self.quiet_command("cmd").args(["/C", "start", ""]).arg(path).spawn();
     }
 
-    /// Prefers the .exe, then an npm .cmd shim, since terminals can't run the extensionless shim npm also installs.
-    fn resolve_program(&self, name: &str) -> PathBuf {
-        if !is_bare_name(name) {
-            return PathBuf::from(name);
-        }
-        find_program(&[format!("{name}.exe"), format!("{name}.cmd")]).unwrap_or_else(|| PathBuf::from(name))
+    /// Only a real .exe counts: npm's extensionless and .cmd shims either can't run in a terminal or go through cmd.exe, which cuts arguments off at the first newline.
+    fn find_on_path(&self, name: &str) -> Option<PathBuf> {
+        find_program(&[format!("{name}.exe")])
     }
 
     fn external_terminal(&self, title: &str, cwd: &Path, program: &Path, args: &[String]) -> Option<Command> {

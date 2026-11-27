@@ -96,6 +96,19 @@ impl AgentCli for Claude {
         };
         Some(read().unwrap_or(DEFAULT_RETENTION_DAYS))
     }
+
+    /// Only when Lanes runs inside a Claude Code session (`CLAUDECODE` is set): its session, SDK and MCP variables make child sessions misbehave.
+    fn leaked_env_vars(&self, names: &[String]) -> Vec<String> {
+        if !names.iter().any(|name| name.eq_ignore_ascii_case("CLAUDECODE")) {
+            return Vec::new();
+        }
+        let leaked = |name: &str| {
+            let upper = name.to_ascii_uppercase();
+            ["CLAUDECODE", "CLAUDE_PID", "ANTHROPIC_BASE_URL"].contains(&upper.as_str())
+                || ["CLAUDE_CODE_", "CLAUDE_AGENT_SDK_", "MCP_"].iter().any(|prefix| upper.starts_with(prefix))
+        };
+        names.iter().filter(|name| leaked(name)).cloned().collect()
+    }
 }
 
 const HOOK_EVENTS: &[&str] = &["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionEnd"];
@@ -262,6 +275,14 @@ fn summarize_input(input: Option<&Value>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strips_a_parent_claude_sessions_variables_only_inside_one() {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let inside = names(&["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "MCP_TIMEOUT", "ANTHROPIC_BASE_URL", "PATH", "ANTHROPIC_API_KEY"]);
+        assert_eq!(Claude.leaked_env_vars(&inside), names(&["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "MCP_TIMEOUT", "ANTHROPIC_BASE_URL"]));
+        assert!(Claude.leaked_env_vars(&names(&["CLAUDE_CODE_ENTRYPOINT", "PATH"])).is_empty());
+    }
 
     #[test]
     fn maps_hook_events_to_states() {

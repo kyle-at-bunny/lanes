@@ -51,7 +51,7 @@ pub fn inventory(home: &LanesHome) -> Result<Vec<SessionInfo>> {
     let states = StateStore::new(home.clone());
     let config = BoardConfig::load(home).ok();
     for session in &mut sessions {
-        let program = config.as_ref().map(|c| c.agent_program(session.agent)).unwrap_or_default();
+        let program = config.as_ref().and_then(|c| c.agent_program(session.agent).ok()).unwrap_or_default();
         enrich(home, &states, session, &program);
     }
     sessions.sort_by_key(|s| std::cmp::Reverse(s.last_active));

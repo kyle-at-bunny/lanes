@@ -61,7 +61,7 @@ pub struct PtySession {
 impl PtySession {
     pub fn spawn(spec: &LaunchSpec, size: GridSize) -> Result<Arc<Self>> {
         let pair = native_pty_system().openpty(pty_size(size)).context("opening a pseudo console")?;
-        let child = pair.slave.spawn_command(build_command(spec)?).context("starting claude")?;
+        let child = pair.slave.spawn_command(build_command(spec)?).with_context(|| format!("starting {}", spec.program))?;
         drop(pair.slave);
         let killer = child.clone_killer();
         let reader = pair.master.try_clone_reader()?;

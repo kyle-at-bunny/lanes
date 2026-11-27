@@ -80,7 +80,7 @@ impl SessionLauncher<'_> {
         };
         let request = self.request(column, session_id, &agent_session_id, false, has_system_prompt.then_some(system_file.as_path()), initial_prompt);
         let args = agent.launch_args(&request)?;
-        Ok(self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd))
+        self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd)
     }
 
     fn new_session_cwd(&self, ticket: &Ticket, column: &ColumnDef) -> Result<PathBuf> {
@@ -112,7 +112,7 @@ impl SessionLauncher<'_> {
         };
         let request = self.request(column, record.id, &agent_session_id, true, None, initial_prompt);
         let args = agent.launch_args(&request)?;
-        let mut spec = self.spec(ticket, column, agent, record.id, agent_session_id, LaunchKind::Resume, args, record.cwd.clone());
+        let mut spec = self.spec(ticket, column, agent, record.id, agent_session_id, LaunchKind::Resume, args, record.cwd.clone())?;
         spec.draft = draft;
         Ok(spec)
     }
@@ -167,11 +167,11 @@ impl SessionLauncher<'_> {
         kind: LaunchKind,
         args: Vec<String>,
         cwd: PathBuf,
-    ) -> LaunchSpec {
-        LaunchSpec {
+    ) -> Result<LaunchSpec> {
+        Ok(LaunchSpec {
             session_id,
             kind,
-            program: self.config.agent_program(agent.kind()),
+            program: self.config.agent_program(agent.kind())?,
             args,
             cwd,
             env: vec![(HOME_ENV.into(), self.home.root().to_string_lossy().into_owned()), (TICKET_ENV.into(), ticket.id.clone()), (COLUMN_ENV.into(), column.id.clone())],
@@ -179,7 +179,7 @@ impl SessionLauncher<'_> {
             draft: None,
             agent: agent.kind(),
             agent_session_id: (agent_session_id != session_id.to_string()).then_some(agent_session_id),
-        }
+        })
     }
 
     /// For agents without a system prompt: the stage instructions and the brief together, by reference when long.
@@ -266,8 +266,9 @@ mod tests {
         let board = format!(
             r#"
 [defaults]
-{extra_defaults}
 model = "opus"
+claude_path = "claude"
+{extra_defaults}
 [artifacts.plan]
 type = "file"
 inline = true
@@ -368,13 +369,13 @@ consumes = ["plan", "notes?"]
 
     #[test]
     fn opencode_sessions_send_instructions_first_and_resume_by_their_own_id() {
-        let (_dir, home, config) = fixture_with("agent = \"opencode\"");
+        let (_dir, home, config) = fixture_with("agent = \"opencode\"\n[agents.opencode]\npath = \"C:/oc/opencode.exe\"");
         let mut ticket = TicketStore::new(home.clone()).create(Some("T-6"), "Open it", "Details", "dev").unwrap();
         let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
         ArtifactStore::new(&home, &config, "T-6").write("plan", "the plan").unwrap();
 
         let new = launcher.prepare(&mut ticket, "dev").unwrap();
-        assert_eq!(new.program, "opencode");
+        assert_eq!(new.program, "C:/oc/opencode.exe");
         assert_eq!(new.args[0], "--session");
         assert!(new.args[1].starts_with("ses_"));
         assert_eq!(new.args[2], "--prompt");

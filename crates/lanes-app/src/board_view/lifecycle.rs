@@ -30,7 +30,7 @@ impl LanesApp {
             self.stop_all_sessions(cx);
             return true;
         }
-        window_visibility::hide(window);
+        window_visibility::hide(window, cx);
         false
     }
 
@@ -50,7 +50,7 @@ impl LanesApp {
         let commands = self.tray.as_ref().map(Tray::poll).unwrap_or_default();
         for command in commands {
             match command {
-                TrayCommand::Show => window_visibility::show(window),
+                TrayCommand::Show => window_visibility::show(window, cx),
                 TrayCommand::Quit => self.request_quit(window, cx),
             }
         }
@@ -62,7 +62,7 @@ impl LanesApp {
         if working == 0 {
             return self.quit_now(cx);
         }
-        window_visibility::show(window);
+        window_visibility::show(window, cx);
         self.quit_confirm = Some(working);
         cx.notify();
     }
@@ -81,7 +81,18 @@ impl LanesApp {
     }
 
     fn working_sessions(&self, cx: &App) -> usize {
-        self.terminals.values().chain(self.assistant.iter()).filter(|t| self.is_working(t.read(cx))).count()
+        self.working_agents(cx).len()
+    }
+
+    /// The agent of each session that is mid-turn.
+    fn working_agents(&self, cx: &App) -> Vec<lanes_core::agent::AgentKind> {
+        let assistant = self.assistant.iter().filter(|t| self.is_working(t.read(cx))).map(|_| self.assistant_agent());
+        let tickets = self.terminals.values().filter(|t| self.is_working(t.read(cx))).filter_map(|t| self.session_agent(&t.read(cx).session_id));
+        tickets.chain(assistant).collect()
+    }
+
+    fn session_agent(&self, session_id: &uuid::Uuid) -> Option<lanes_core::agent::AgentKind> {
+        self.tickets.iter().flat_map(|t| t.sessions.values()).find(|r| r.id == *session_id).map(|r| r.agent)
     }
 
     /// Mid-turn: the hooks say working AND the terminal is still redrawing, which filters out a stale
@@ -101,7 +112,8 @@ impl LanesApp {
     pub(super) fn render_quit_confirm(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let running = self.quit_confirm?;
         let noun = if running == 1 { "session is" } else { "sessions are" };
-        let message = format!("An agent is working in {running} {noun}. Quitting interrupts it; you can resume from the ticket's card later.");
+        let agents = lanes_core::agent::names(self.working_agents(cx));
+        let message = format!("{agents} is working in {running} {noun}. Quitting interrupts it; you can resume from the ticket's card later.");
         Some(
             h_flex()
                 .px_3()

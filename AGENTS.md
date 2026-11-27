@@ -62,9 +62,9 @@ GPUI comes through the `gpui-kit` facade, which pins a `gpui-pre` snapshot. Its 
 
 Everything OS-specific goes through `lanes_core::platform::current()` (processes, opening files, external terminals, path rules) or `lanes-app/src/platform` (console, window hiding, terminal font, clipboard keys). Don't add `cfg(windows)` elsewhere. Windows is the tested platform; macOS and Linux are compile-checked in CI only.
 
-- **Program lookup:** `portable-pty` picks an extensionless npm shim over `claude.exe`, so `Platform::resolve_program` resolves the `.exe` (then an npm `.cmd` shim) explicitly.
+- **Program lookup:** `portable-pty` picks an extensionless npm shim over `claude.exe`, so `Platform::resolve_program` resolves the `.exe` explicitly. `.cmd` shims are never used, because cmd.exe cuts arguments off at the first newline; an agent with no `.exe` on PATH (OpenCode from npm) needs `[agents.<kind>] path`, and `BoardConfig::agent_program` says so.
 - **ConPTY doesn't EOF when the child exits.** The exit watcher drops the master so the reader thread ends.
-- **Nested Claude sessions:** when Lanes itself runs inside a Claude Code session, the inherited `CLAUDECODE` / `CLAUDE_CODE_*` variables make child sessions misbehave. `launch::inherited_session_vars` strips them; keep it in every spawn path.
+- **Nested Claude sessions:** when Lanes itself runs inside a Claude Code session, the inherited `CLAUDECODE` / `CLAUDE_CODE_*` variables make child sessions misbehave. `launch::inherited_session_vars` strips them (each agent lists its own in `AgentCli::leaked_env_vars`); keep it in every spawn path.
 - **Console subcommands:** the binary uses the Windows GUI subsystem, so CLI subcommands call `AttachConsole` to print output.
 
 ## Verifying UI changes

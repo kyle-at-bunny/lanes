@@ -35,6 +35,16 @@ pub enum AgentKind {
     OpenCode,
 }
 
+impl AgentKind {
+    /// The name used in board.toml, e.g. "opencode".
+    pub fn config_name(self) -> &'static str {
+        match self {
+            AgentKind::Claude => "claude",
+            AgentKind::OpenCode => "opencode",
+        }
+    }
+}
+
 /// What an agent can report back to Lanes beyond running in a terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Capabilities {
@@ -81,7 +91,7 @@ pub trait AgentCli: Sync {
     fn kind(&self) -> AgentKind;
     /// Short name for labels, e.g. "Claude".
     fn display_name(&self) -> &'static str;
-    /// The program run when `[agents.<kind>] path` isn't set.
+    /// The program looked up on PATH when `[agents.<kind>] path` isn't set.
     fn default_program(&self) -> &'static str;
     fn capabilities(&self) -> Capabilities;
 
@@ -135,6 +145,11 @@ pub trait AgentCli: Sync {
     fn retention_days(&self) -> Option<u64> {
         None
     }
+
+    /// Of the variable names in Lanes' own environment, those a parent session of this agent leaked (when Lanes was started from one); no child session may inherit them.
+    fn leaked_env_vars(&self, _names: &[String]) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub fn get(kind: AgentKind) -> &'static dyn AgentCli {
@@ -144,9 +159,36 @@ pub fn get(kind: AgentKind) -> &'static dyn AgentCli {
     }
 }
 
+pub fn all() -> [&'static dyn AgentCli; 2] {
+    [&Claude, &OpenCode]
+}
+
+/// The agents' names for a sentence, e.g. "Claude" or "Claude and OpenCode"; "The agent" when there are none.
+pub fn names(kinds: impl IntoIterator<Item = AgentKind>) -> String {
+    let mut seen: Vec<AgentKind> = Vec::new();
+    for kind in kinds {
+        if !seen.contains(&kind) {
+            seen.push(kind);
+        }
+    }
+    let names: Vec<&str> = seen.iter().map(|kind| get(*kind).display_name()).collect();
+    match names.as_slice() {
+        [] => "The agent".to_string(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_each_agent_once_for_a_sentence() {
+        assert_eq!(names([]), "The agent");
+        assert_eq!(names([AgentKind::Claude, AgentKind::Claude]), "Claude");
+        assert_eq!(names([AgentKind::OpenCode, AgentKind::Claude, AgentKind::OpenCode]), "OpenCode and Claude");
+    }
 
     #[test]
     fn every_kind_has_an_adapter_of_that_kind() {

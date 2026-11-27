@@ -15,6 +15,8 @@ use crate::timeline::{self, EventKind};
 pub struct CleanupPlan {
     pub ticket_id: String,
     pub session_ids: Vec<Uuid>,
+    /// Who keeps the conversations Lanes leaves behind, e.g. "Claude".
+    pub agent_names: String,
     pub state_files: Vec<PathBuf>,
     pub commands: Vec<PreparedAction>,
 }
@@ -34,7 +36,8 @@ impl CleanupReport {
 pub fn plan(home: &LanesHome, config: &BoardConfig, ticket: &Ticket) -> Result<CleanupPlan> {
     let session_ids: Vec<Uuid> = ticket.sessions.values().map(|r| r.id).collect();
     let state_files = session_ids.iter().flat_map(|id| sessions::state_files(home, id)).filter(|p| p.exists()).collect();
-    Ok(CleanupPlan { ticket_id: ticket.id.clone(), session_ids, state_files, commands: cleanup_commands(home, config, ticket)? })
+    let agent_names = crate::agent::names(ticket.agents());
+    Ok(CleanupPlan { ticket_id: ticket.id.clone(), session_ids, agent_names, state_files, commands: cleanup_commands(home, config, ticket)? })
 }
 
 /// Runs cleanup after the caller has stopped the ticket's processes, then archives the ticket.

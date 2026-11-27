@@ -45,15 +45,15 @@ pub struct AgentConfig {
 pub struct Defaults {
     /// Which agent CLI runs new sessions. Existing sessions keep the agent that created them.
     pub agent: crate::agent::AgentKind,
-    /// Claude Code executable; same as [agents.claude] path, which wins when both are set.
-    pub claude_path: String,
+    /// Claude Code executable; same as [agents.claude] path, which wins when both are set. Unset: `claude` is looked up on PATH.
+    pub claude_path: Option<String>,
     /// Default --model for every session, e.g. "opus" or "sonnet".
     pub model: Option<String>,
     /// Default --effort for every session.
     pub effort: Option<String>,
     /// Where sessions run: inside Lanes, or in an external terminal (Windows Terminal tabs on Windows).
     pub terminal: TerminalMode,
-    /// With start = "prompt", briefs longer than this many characters are written to a file for Claude to read.
+    /// With start = "prompt", briefs longer than this many characters are written to a file for the agent to read.
     pub kickoff_inline_limit: usize,
     /// App colour scheme; the top-bar button updates this.
     pub theme: ThemeSetting,
@@ -73,7 +73,7 @@ pub enum StartMode {
     /// The brief goes into the system prompt and the session opens on an empty input box.
     #[default]
     Wait,
-    /// The brief is sent as the first message, so Claude starts working immediately.
+    /// The brief is sent as the first message, so the agent starts working immediately.
     Prompt,
 }
 
@@ -118,7 +118,7 @@ impl Default for Defaults {
     fn default() -> Self {
         Self {
             agent: crate::agent::AgentKind::Claude,
-            claude_path: "claude".into(),
+            claude_path: None,
             model: None,
             effort: None,
             terminal: TerminalMode::Embedded,
@@ -184,7 +184,7 @@ impl ArtifactDef {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
-/// A board column; columns with a `cwd` run a Claude session per ticket.
+/// A board column; columns with a `cwd` run an agent session per ticket.
 pub struct ColumnDef {
     /// Unique identifier used in ticket files and the CLI; changing it orphans tickets in the column.
     pub id: String,
@@ -192,7 +192,7 @@ pub struct ColumnDef {
     pub title: Option<String>,
     /// Folder the stage's sessions run in (template, `~` expanded); omit for holding lanes like Backlog and Done.
     pub cwd: Option<String>,
-    /// Prompt template relative to the board folder, appended to Claude's system prompt when a session is created.
+    /// Prompt template relative to the board folder, appended to the agent's system prompt (or sent as its first message) when a session is created.
     pub prompt: Option<String>,
     /// Artifact names this stage reads; a trailing `?` marks one as optional.
     #[serde(default)]
@@ -204,9 +204,9 @@ pub struct ColumnDef {
     pub model: Option<String>,
     /// Overrides `[defaults] effort` for this stage.
     pub effort: Option<String>,
-    /// Claude Code permission mode for this stage, e.g. "plan" or "acceptEdits".
+    /// Permission mode for this stage, e.g. "plan" or "acceptEdits" (Claude Code only).
     pub permission_mode: Option<String>,
-    /// Extra `claude` arguments, e.g. ["--add-dir", "~/projects/shared"].
+    /// Extra agent CLI arguments, e.g. ["--add-dir", "~/projects/shared"].
     #[serde(default)]
     pub extra_args: Vec<String>,
     /// Template for the message used when a ticket returns to this stage with changed inputs.
@@ -272,13 +272,28 @@ impl<'a> ArtifactRef<'a> {
 }
 
 impl BoardConfig {
-    /// The program that runs `kind` sessions: its [agents] path, else (for Claude) claude_path, else the agent's default.
-    pub fn agent_program(&self, kind: crate::agent::AgentKind) -> String {
+    /// The program that runs `kind` sessions: the configured path if set, else the agent's program found on PATH.
+    pub fn agent_program(&self, kind: crate::agent::AgentKind) -> Result<String> {
+        self.agent_program_with(kind, |name| crate::platform::current().find_on_path(name))
+    }
+
+    fn agent_program_with(&self, kind: crate::agent::AgentKind, find_on_path: impl Fn(&str) -> Option<std::path::PathBuf>) -> Result<String> {
+        if let Some(path) = self.configured_agent_path(kind) {
+            return Ok(path);
+        }
+        let agent = crate::agent::get(kind);
+        match find_on_path(agent.default_program()) {
+            Some(found) => Ok(found.to_string_lossy().into_owned()),
+            None => bail!("{} isn't on PATH; set [agents.{}] path to its executable", agent.default_program(), kind.config_name()),
+        }
+    }
+
+    fn configured_agent_path(&self, kind: crate::agent::AgentKind) -> Option<String> {
         let configured = match kind {
-            crate::agent::AgentKind::Claude => self.agents.claude.path.clone().or_else(|| Some(self.defaults.claude_path.clone())),
+            crate::agent::AgentKind::Claude => self.agents.claude.path.clone().or_else(|| self.defaults.claude_path.clone()),
             crate::agent::AgentKind::OpenCode => self.agents.opencode.path.clone(),
         };
-        configured.filter(|p| !p.trim().is_empty()).unwrap_or_else(|| crate::agent::get(kind).default_program().to_string())
+        configured.filter(|p| !p.trim().is_empty())
     }
 
     pub fn load_or_init(home: &LanesHome) -> Result<Self> {
@@ -399,31 +414,27 @@ path = "review-notes.md"
 "#;
 
     #[test]
-    fn agent_program_prefers_agents_path_then_claude_path() {
-        let claude = crate::agent::AgentKind::Claude;
-        let base = "[[columns]]
-id = \"a\"
-";
-        assert_eq!(BoardConfig::parse(base).unwrap().agent_program(claude), "claude");
-        let legacy = BoardConfig::parse(&format!(
-            "[defaults]
-claude_path = \"C:/bin/claude.exe\"
-{base}"
-        ))
-        .unwrap();
-        assert_eq!(legacy.agent_program(claude), "C:/bin/claude.exe");
-        let both = BoardConfig::parse(&format!(
-            "[defaults]
-claude_path = \"old\"
-[agents.claude]
-path = \"new\"
-{base}"
-        ))
-        .unwrap();
-        assert_eq!(both.agent_program(claude), "new");
-        assert_eq!(both.defaults.agent, claude);
-    }
+    fn agent_program_uses_a_configured_path_else_finds_the_agent_on_path() {
+        use crate::agent::AgentKind::{Claude, OpenCode};
+        use std::path::PathBuf;
+        let base = "[[columns]]\nid = \"a\"\n";
+        let found = |name: &str| Some(PathBuf::from(format!("/bin/{name}")));
+        let missing = |_: &str| None;
+        let plain = BoardConfig::parse(base).unwrap();
+        assert_eq!(plain.agent_program_with(Claude, found).unwrap(), "/bin/claude");
+        assert_eq!(plain.agent_program_with(OpenCode, found).unwrap(), "/bin/opencode");
+        let err = plain.agent_program_with(OpenCode, missing).unwrap_err().to_string();
+        assert_eq!(err, "opencode isn't on PATH; set [agents.opencode] path to its executable");
 
+        let legacy = BoardConfig::parse(&format!("[defaults]\nclaude_path = \"C:/bin/claude.exe\"\n{base}")).unwrap();
+        assert_eq!(legacy.agent_program_with(Claude, missing).unwrap(), "C:/bin/claude.exe");
+        let both =
+            BoardConfig::parse(&format!("[defaults]\nclaude_path = \"old\"\n[agents.claude]\npath = \"new\"\n[agents.opencode]\npath = \"C:/oc/opencode.exe\"\n{base}"))
+                .unwrap();
+        assert_eq!(both.agent_program_with(Claude, found).unwrap(), "new");
+        assert_eq!(both.agent_program_with(OpenCode, found).unwrap(), "C:/oc/opencode.exe");
+        assert_eq!(both.defaults.agent, Claude);
+    }
     #[test]
     fn parses_columns_and_artifacts() {
         let config = BoardConfig::parse(BOARD).unwrap();
