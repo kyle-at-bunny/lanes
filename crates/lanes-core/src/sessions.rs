@@ -163,7 +163,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = LanesHome::new(dir.path());
         let cwd = crate::paths::portable(dir.path());
-        let config = BoardConfig::parse(&format!("[[columns]]\nid = \"plan\"\ncwd = \"{cwd}\"\n[[columns]]\nid = \"dev\"\ncwd = \"{cwd}\"\n")).unwrap();
+        let config = BoardConfig::parse(&format!(
+            "[defaults]\nclaude_path = \"claude\"\n[[columns]]\nid = \"plan\"\ncwd = \"{cwd}\"\n[[columns]]\nid = \"dev\"\ncwd = \"{cwd}\"\n"
+        ))
+        .unwrap();
         (dir, home, config)
     }
 

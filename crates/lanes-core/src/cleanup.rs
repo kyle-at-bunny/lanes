@@ -84,6 +84,8 @@ mod tests {
         let cwd = portable(dir.path());
         let config = BoardConfig::parse(&format!(
             r#"
+[defaults]
+claude_path = "claude"
 [[columns]]
 id = "dev"
 cwd = "{cwd}"
