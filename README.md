@@ -72,7 +72,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 
 - **Windows 10 or 11.** Lanes is developed and tested on Windows. macOS and Linux are untested; see [Platform support](#platform-support).
 - **[Claude Code](https://docs.claude.com/en/docs/claude-code)**, installed and logged in. Run `claude`, then `/login`, once in a normal terminal.
-- **Optional:** the [GitHub CLI](https://cli.github.com) (`gh`), logged in, for pull request state, CI, reviews and unresolved comments on PR links.
+- **Optional:** the [GitHub CLI](https://cli.github.com) (`gh`), logged in, for pull request state, CI, reviews and unresolved comments on PR links. Set `pr_provider = "none"` to turn PR checks off.
 - **Building from source** additionally needs:
   - [Rust](https://rustup.rs) (stable, MSVC toolchain);
   - the Visual Studio C++ build tools with a Windows 10/11 SDK (the "Desktop development with C++" workload).

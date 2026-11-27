@@ -1,24 +1,45 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{ActiveTheme, Sizable, Theme, h_flex};
 use gpui_kit::*;
 use lanes_core::paths::now_unix;
-use lanes_core::pr_status::{self, Checks, PrCache, PrState, PrStatus, Review, Tone};
+use lanes_core::pr_status::{self, Checks, PrCache, PrProvider, PrProviderKind, PrState, PrStatus, Review, Tone};
 
 use super::LanesApp;
 
 /// PR links per ticket and their fetched statuses; links are rescanned on every refresh tick.
-#[derive(Default)]
 pub(super) struct PrTracker {
+    kind: PrProviderKind,
+    provider: Arc<dyn PrProvider>,
     links: HashMap<String, Vec<String>>,
     cache: PrCache,
 }
 
+impl Default for PrTracker {
+    fn default() -> Self {
+        let kind = PrProviderKind::default();
+        Self { kind, provider: pr_status::provider(kind), links: HashMap::new(), cache: PrCache::default() }
+    }
+}
+
 impl PrTracker {
-    pub(super) fn cache(&self) -> &PrCache {
-        &self.cache
+    /// Follows the board's `pr_provider` setting, starting over when it changes.
+    fn use_provider(&mut self, kind: PrProviderKind) {
+        if kind != self.kind {
+            *self = Self { kind, provider: pr_status::provider(kind), ..Self::default() };
+        }
+    }
+
+    /// Status chips for a PR link (state and checks, review, unresolved comments); empty when the link isn't a PR or hasn't been fetched yet.
+    pub(super) fn chips(&self, url: &str, theme: &Theme) -> Vec<AnyElement> {
+        let Some(url) = self.provider.normalize(url) else { return Vec::new() };
+        if self.cache.error(&url).is_some() {
+            return vec![div().text_color(theme.muted_foreground).child("status unavailable").into_any_element()];
+        }
+        self.cache.status(&url).map(|status| status_chips(status, theme)).unwrap_or_default()
     }
 
     fn statuses(&self, ticket_id: &str) -> Vec<&PrStatus> {
@@ -31,9 +52,11 @@ impl PrTracker {
 }
 
 impl LanesApp {
-    /// Rescans artifacts for PR links and fetches the statuses that are due, one `gh` call at a time off the UI thread.
+    /// Rescans artifacts for PR links and fetches the statuses that are due, one at a time off the UI thread.
     pub(super) fn refresh_pr_statuses(&mut self, cx: &mut Context<Self>) {
-        self.prs.links = self.tickets.iter().map(|t| (t.id.clone(), pr_status::pr_urls(&self.board.home, &self.board.config, &t.id))).collect();
+        self.prs.use_provider(self.board.config.defaults.pr_provider);
+        let provider = self.prs.provider.clone();
+        self.prs.links = self.tickets.iter().map(|t| (t.id.clone(), pr_status::pr_urls(&self.board.home, &self.board.config, &t.id, provider.as_ref()))).collect();
         let due = self.prs.cache.claim_stale(self.prs.links.values().flatten().cloned(), now_unix());
         if due.is_empty() {
             return;
@@ -41,8 +64,8 @@ impl LanesApp {
         let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
             for url in due {
-                let target = url.clone();
-                let result = background.spawn(async move { pr_status::fetch(&target).map_err(|err| format!("{err:#}")) }).await;
+                let (target, provider) = (url.clone(), provider.clone());
+                let result = background.spawn(async move { provider.fetch(&target).map_err(|err| format!("{err:#}")) }).await;
                 let applied = this.update(cx, |app, cx| {
                     app.prs.cache.finish(url, result, now_unix());
                     cx.notify();
@@ -84,12 +107,12 @@ impl LanesApp {
             .map(|url| {
                 let target = url.clone();
                 let link = Button::new(SharedString::from(format!("header-pr-{url}")))
-                    .label(pr_status::short_name(url).unwrap_or_else(|| url.clone()))
+                    .label(self.prs.provider.short_name(url).unwrap_or_else(|| url.clone()))
                     .link()
                     .xsmall()
                     .tooltip(url.clone())
                     .on_click(move |_, _, cx| cx.open_url(&target));
-                h_flex().items_center().gap_1().child(link).children(pr_chip(url, &self.prs.cache, theme)).into_any_element()
+                h_flex().items_center().gap_1().child(link).children(self.prs.chips(url, theme)).into_any_element()
             })
             .collect();
         Some(
@@ -111,13 +134,7 @@ impl LanesApp {
     }
 }
 
-/// Status chips shown next to a PR link (state and checks, review, unresolved comments); empty when the link isn't a PR or hasn't been fetched yet.
-pub(super) fn pr_chip(url: &str, cache: &PrCache, theme: &Theme) -> Vec<AnyElement> {
-    let Some(url) = pr_status::normalize_pr_url(url) else { return Vec::new() };
-    if cache.error(&url).is_some() {
-        return vec![div().text_color(theme.muted_foreground).child("status unavailable").into_any_element()];
-    }
-    let Some(status) = cache.status(&url) else { return Vec::new() };
+fn status_chips(status: &PrStatus, theme: &Theme) -> Vec<AnyElement> {
     let color = match (status.state, status.checks) {
         (PrState::Merged, _) => theme.primary,
         (PrState::Closed, _) => theme.muted_foreground,

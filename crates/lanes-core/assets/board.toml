@@ -13,6 +13,7 @@ start = "wait"               # "wait": new sessions open on an empty input box w
 kickoff_inline_limit = 6000  # with start = "prompt", longer briefs are passed as a file reference
 theme = "system"             # "system" | "light" | "dark" (the top-bar toggle updates this)
 terminal_theme = "match"     # "match" the app, or keep the terminal "dark" always
+pr_provider = "github"       # pull request status for PR links in artifacts: "github" (gh CLI) or "none"
 cleanup_on_done = false      # offer "Finish & clean up" automatically when a card lands in the last column
 # A column can set `cleanup = "<command>"` (same templates as actions); it runs in that
 # column's session folder during "Finish & clean up", e.g. cleanup = "git worktree remove ."

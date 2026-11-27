@@ -44,6 +44,8 @@ pub struct Defaults {
     pub cleanup_on_done: bool,
     /// Whether new sessions wait for the user or start working on the brief straight away.
     pub start: StartMode,
+    /// Where pull request status for links in artifacts comes from: "github" (the gh CLI) or "none".
+    pub pr_provider: crate::pr_status::PrProviderKind,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
@@ -105,6 +107,7 @@ impl Default for Defaults {
             terminal_theme: TerminalTheme::Match,
             cleanup_on_done: false,
             start: StartMode::Wait,
+            pr_provider: crate::pr_status::PrProviderKind::Github,
         }
     }
 }

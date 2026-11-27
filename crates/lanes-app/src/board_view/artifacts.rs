@@ -13,9 +13,7 @@ use lanes_core::paths::{expand_tilde, now_unix};
 use lanes_core::ticket::Ticket;
 use lanes_core::timeline;
 
-use lanes_core::pr_status::PrCache;
-
-use super::pr_status::{pr_chip, tinted_tag};
+use super::pr_status::{PrTracker, tinted_tag};
 use super::{DetailTab, LanesApp, open_path};
 
 pub(super) struct ArtifactEdit {
@@ -147,10 +145,8 @@ impl LanesApp {
         let content = match (editing, &entry.content, entry.kind) {
             (Some(edit), _, _) => self.render_artifact_editor(edit, cx).into_any_element(),
             (None, None, _) => div().text_xs().text_color(theme.muted_foreground).child("Not produced yet.").into_any_element(),
-            (None, Some(text), ArtifactType::Text) => {
-                render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() })
-            }
-            (None, Some(text), ArtifactType::File) => render_file_content(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: self.prs.cache() }),
+            (None, Some(text), ArtifactType::Text) => render_content_lines(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: &self.prs }),
+            (None, Some(text), ArtifactType::File) => render_file_content(&format!("{}-{}", ticket.id, entry.name), text, &Look { theme: &theme, prs: &self.prs }),
             (None, Some(text), ArtifactType::Html) => render_html_summary(text, &theme),
         };
         v_flex()
@@ -331,7 +327,7 @@ fn status_tag(entry: &ArtifactEntry, role: Role, theme: &Theme) -> Option<AnyEle
 /// What artifact content rendering needs besides the content: colours and the fetched PR statuses.
 struct Look<'a> {
     theme: &'a Theme,
-    prs: &'a PrCache,
+    prs: &'a PrTracker,
 }
 
 /// Text artifacts: `branch`-format lines become repository rows, everything else is text with clickable links and paths.
@@ -426,7 +422,7 @@ fn link_with_status(id: &str, url: &str, look: &Look<'_>) -> Vec<AnyElement> {
         .tooltip("Open in browser")
         .on_click(move |_, _, cx| cx.open_url(&target));
     let mut pieces = vec![button.into_any_element()];
-    pieces.extend(pr_chip(url, look.prs, look.theme));
+    pieces.extend(look.prs.chips(url, look.theme));
     pieces
 }
 
