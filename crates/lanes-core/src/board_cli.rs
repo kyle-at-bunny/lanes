@@ -172,11 +172,13 @@ pub fn config(home: &LanesHome, action: &ConfigAction) -> Result<()> {
     match action {
         ConfigAction::Check => {
             let problems = check_config(home);
-            if problems.is_empty() {
-                println!("board.toml is valid");
-                return Ok(());
+            if !problems.is_empty() {
+                bail!("{}", problems.join("\n"))
             }
-            bail!("{}", problems.join("\n"))
+            for warning in BoardConfig::load(home).map(|config| config_warnings(&config)).unwrap_or_default() {
+                println!("warning: {warning}");
+            }
+            println!("board.toml is valid");
         }
         ConfigAction::Schema { write: false } => println!("{}", config_schema::board_schema()),
         ConfigAction::Schema { write: true } => println!("{}", describe_install(&config_schema::install_schema(home)?)),
@@ -206,6 +208,29 @@ pub fn check_config(home: &LanesHome) -> Vec<String> {
         .filter(|(_, prompt)| !home.resolve(prompt).is_file())
         .map(|(column, prompt)| format!("column '{}' prompt file {} does not exist", column.id, home.resolve(prompt).display()))
         .collect()
+}
+
+/// Settings that are valid but have no effect with the board's agent.
+pub fn config_warnings(config: &BoardConfig) -> Vec<String> {
+    let agent = crate::agent::get(config.defaults.agent);
+    let ignored = agent.ignored_settings();
+    let defaults = &config.defaults;
+    let board_level = [("model", defaults.model.is_some()), ("effort", defaults.effort.is_some())];
+    let mut warnings: Vec<String> =
+        board_level.iter().filter(|(key, set)| *set && ignored.contains(key)).map(|(key, _)| format!("{} ignores [defaults] {key}", agent.display_name())).collect();
+    for column in &config.columns {
+        let set = [("model", column.model.is_some()), ("effort", column.effort.is_some()), ("permission_mode", column.permission_mode.is_some())];
+        warnings.extend(
+            set.iter().filter(|(key, set)| *set && ignored.contains(key)).map(|(key, _)| format!("{} ignores {key} in column '{}'", agent.display_name(), column.id)),
+        );
+    }
+    if !agent.capabilities().system_prompt && config.columns.iter().any(|c| c.has_session() && c.start_mode(defaults) == crate::config::StartMode::Wait) {
+        warnings.push(format!(
+            "{} has no system prompt, so new sessions send the stage prompt and brief as the first message even with start = \"wait\"",
+            agent.display_name()
+        ));
+    }
+    warnings
 }
 
 fn list_tickets(board: &Board, column: Option<&str>, json: bool) -> Result<String> {
@@ -319,6 +344,39 @@ mod tests {
         ticket = board.tickets.load("T-1").unwrap();
         assert!(std::fs::read_to_string(&file).unwrap().contains("[link]"));
         assert_eq!(ticket.link.unwrap().url, "https://acme.atlassian.net/browse/PROJ-1");
+    }
+
+    #[test]
+    fn warns_about_settings_the_agent_ignores() {
+        let config = BoardConfig::parse(
+            "[defaults]
+agent = \"opencode\"
+model = \"opus\"
+[[columns]]
+id = \"dev\"
+cwd = \".\"
+permission_mode = \"plan\"
+",
+        )
+        .unwrap();
+        let warnings = config_warnings(&config);
+        assert!(warnings.iter().any(|w| w == "OpenCode ignores [defaults] model"), "{warnings:?}");
+        assert!(warnings.iter().any(|w| w == "OpenCode ignores permission_mode in column 'dev'"), "{warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("first message")));
+        assert!(
+            config_warnings(
+                &BoardConfig::parse(
+                    "[defaults]
+model = \"opus\"
+[[columns]]
+id = \"dev\"
+cwd = \".\"
+"
+                )
+                .unwrap()
+            )
+            .is_empty()
+        );
     }
 
     #[test]

@@ -39,7 +39,7 @@ GitHub MCP server), use them to read work items.
 - `start` (in `[defaults]` or per column): `"wait"` (default) gives a new session the ticket brief as context and
   waits for the user's first message; `"prompt"` sends the brief as the first message so Claude starts at once.
 - `[artifacts.<name>]` has `type = "file"`, `"text"` or `"html"`, a `description`, and optional `inline = true` (markdown files only). HTML artifacts are self-contained pages the user opens in their browser.
-- `[defaults]` holds board-wide settings; `[[actions]]` are buttons on every ticket.
+- `[defaults]` holds board-wide settings (including `agent = "claude" | "opencode"`, the CLI that runs new sessions); `[[actions]]` are buttons on every ticket.
 - Column prompts are minijinja templates (`{{ '{{' }} ticket.id {{ '}}' }}`, `{{ '{{' }} ticket.title {{ '}}' }}`,
   `{{ '{{' }} ticket.link_url {{ '}}' }}`, `{{ '{{' }} ticket.link_key {{ '}}' }}`, `{{ '{{' }} column.title {{ '}}' }}`). A prompt edit applies to sessions started after it;
   existing sessions keep the prompt they were created with, even when resumed.

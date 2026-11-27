@@ -17,8 +17,10 @@ use crate::state::{HookState, StatusSnapshot};
 use crate::transcript::TranscriptEntry;
 
 mod claude;
+mod opencode;
 
 pub use claude::Claude;
+pub use opencode::OpenCode;
 
 /// The `agent` setting: which CLI runs sessions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema, clap::ValueEnum)]
@@ -27,6 +29,10 @@ pub enum AgentKind {
     /// Claude Code (`claude`).
     #[default]
     Claude,
+    /// OpenCode (`opencode`).
+    #[serde(rename = "opencode")]
+    #[value(name = "opencode")]
+    OpenCode,
 }
 
 /// What an agent can report back to Lanes beyond running in a terminal.
@@ -63,6 +69,8 @@ pub struct LaunchRequest<'a> {
 
 /// Where to find a session's conversation.
 pub struct TranscriptSource<'a> {
+    /// The agent's executable, for agents that export transcripts through their CLI.
+    pub program: &'a str,
     pub agent_session_id: &'a str,
     pub cwd: &'a Path,
     /// A path the agent reported itself (e.g. through a hook), if any.
@@ -84,6 +92,11 @@ pub trait AgentCli: Sync {
 
     /// Command-line arguments for a new or resumed session (may write per-session files the CLI reads).
     fn launch_args(&self, request: &LaunchRequest<'_>) -> Result<Vec<String>>;
+
+    /// Stage settings (`model`, `effort`, `permission_mode`) this agent has no way to apply; `config check` warns about them.
+    fn ignored_settings(&self) -> &'static [&'static str] {
+        &[]
+    }
 
     /// Extra arguments for the board assistant, e.g. pre-approving the `lanes` CLI.
     fn assistant_args(&self, _lanes_command: &str) -> Vec<String> {
@@ -127,6 +140,7 @@ pub trait AgentCli: Sync {
 pub fn get(kind: AgentKind) -> &'static dyn AgentCli {
     match kind {
         AgentKind::Claude => &Claude,
+        AgentKind::OpenCode => &OpenCode,
     }
 }
 

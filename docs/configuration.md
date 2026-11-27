@@ -84,12 +84,18 @@ Each session runs a coding agent CLI in a terminal. `[defaults] agent` picks whi
 | Agent | `agent` | Live status (working / needs input) | Context and plan usage | Transcript tab |
 | --- | --- | --- | --- | --- |
 | Claude Code | `"claude"` | yes, from hooks | yes, from the status line | yes |
+| OpenCode | `"opencode"` | no: cards show "running" | no | yes, via `opencode session export` |
+
+**OpenCode notes.** OpenCode has no system-prompt flag, so a new OpenCode session gets the stage prompt and the ticket brief as its first message, even with `start = "wait"`. Long briefs go in a file the message points to. It ignores `model`, `effort` and `permission_mode`; pick its model in OpenCode's own config. `lanes config check` warns about all of this.
 
 Set an agent's executable under `[agents.<agent>]`:
 
 ```toml
 [agents.claude]
 path = "C:/tools/claude.exe"
+
+[agents.opencode]
+path = "opencode"
 ```
 
 `model`, `effort`, `permission_mode` and `extra_args` are passed in the agent's own form. [docs/agents.md](agents.md) explains how to add another agent.

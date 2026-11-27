@@ -30,6 +30,7 @@ pub struct BoardConfig {
 #[serde(default)]
 pub struct AgentsConfig {
     pub claude: AgentConfig,
+    pub opencode: AgentConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -275,6 +276,7 @@ impl BoardConfig {
     pub fn agent_program(&self, kind: crate::agent::AgentKind) -> String {
         let configured = match kind {
             crate::agent::AgentKind::Claude => self.agents.claude.path.clone().or_else(|| Some(self.defaults.claude_path.clone())),
+            crate::agent::AgentKind::OpenCode => self.agents.opencode.path.clone(),
         };
         configured.filter(|p| !p.trim().is_empty()).unwrap_or_else(|| crate::agent::get(kind).default_program().to_string())
     }

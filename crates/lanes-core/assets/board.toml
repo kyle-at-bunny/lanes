@@ -4,7 +4,7 @@
 # Columns without a `cwd` (backlog, done) are plain holding lanes.
 
 [defaults]
-agent = "claude"             # the coding agent CLI that runs new sessions
+agent = "claude"             # the coding agent CLI that runs new sessions: "claude" | "opencode"
 claude_path = "claude"
 # model = "opus"
 # effort = "medium"

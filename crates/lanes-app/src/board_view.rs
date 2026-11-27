@@ -227,7 +227,8 @@ impl LanesApp {
         self.transcript = self.ticket(ticket_id).and_then(|ticket| ticket.session(column_id)).map(|record| {
             let reported = self.board.states.hook(&record.id).and_then(|h| h.transcript_path);
             let agent_session_id = record.agent_session_id();
-            let source = TranscriptSource { agent_session_id: &agent_session_id, cwd: &record.cwd, reported_path: reported.as_deref() };
+            let program = self.board.config.agent_program(record.agent);
+            let source = TranscriptSource { program: &program, agent_session_id: &agent_session_id, cwd: &record.cwd, reported_path: reported.as_deref() };
             let entries = agent::get(record.agent).read_transcript(&source);
             LoadedTranscript { ticket_id: ticket_id.to_string(), column_id: column_id.to_string(), session_id: record.id, agent: record.agent, entries }
         });

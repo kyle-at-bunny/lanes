@@ -69,13 +69,16 @@ impl SessionLauncher<'_> {
         let session_id = Uuid::new_v4();
         let agent_session_id = agent.new_session_id(session_id);
         let cwd = self.new_session_cwd(ticket, column)?;
-        let mode = column.start_mode(&self.config.defaults);
-        let system_file = self.write_session_file(ticket, column, "system.md", &self.new_system_prompt(ticket, column, mode)?)?;
-        let initial_prompt = match mode {
-            StartMode::Prompt => Some(self.kickoff_argument(ticket, column)?),
-            StartMode::Wait => None,
+        let has_system_prompt = agent.capabilities().system_prompt;
+        let mode = if has_system_prompt { column.start_mode(&self.config.defaults) } else { StartMode::Prompt };
+        let system_prompt = self.new_system_prompt(ticket, column, mode)?;
+        let system_file = self.write_session_file(ticket, column, "system.md", &system_prompt)?;
+        let initial_prompt = match (mode, has_system_prompt) {
+            (StartMode::Wait, _) => None,
+            (StartMode::Prompt, true) => Some(self.kickoff_argument(ticket, column)?),
+            (StartMode::Prompt, false) => Some(self.first_message_with_instructions(ticket, column, &system_prompt)?),
         };
-        let request = self.request(column, session_id, &agent_session_id, false, Some(&system_file), initial_prompt);
+        let request = self.request(column, session_id, &agent_session_id, false, has_system_prompt.then_some(system_file.as_path()), initial_prompt);
         let args = agent.launch_args(&request)?;
         Ok(self.spec(ticket, column, agent, session_id, agent_session_id, LaunchKind::New, args, cwd))
     }
@@ -177,6 +180,16 @@ impl SessionLauncher<'_> {
             agent: agent.kind(),
             agent_session_id: (agent_session_id != session_id.to_string()).then_some(agent_session_id),
         }
+    }
+
+    /// For agents without a system prompt: the stage instructions and the brief together, by reference when long.
+    fn first_message_with_instructions(&self, ticket: &Ticket, column: &ColumnDef, instructions: &str) -> Result<String> {
+        let message = format!("{}\n\n{}", instructions.trim(), self.prompts(ticket, column).kickoff()?.trim()).trim().to_string();
+        let file = self.write_session_file(ticket, column, "brief.md", &message)?;
+        if message.len() <= self.config.defaults.kickoff_inline_limit {
+            return Ok(message);
+        }
+        Ok(format!("Your instructions and ticket brief are in `{}`. Read it in full, then begin.", portable(&file)))
     }
 
     fn kickoff_argument(&self, ticket: &Ticket, column: &ColumnDef) -> Result<String> {
@@ -351,6 +364,28 @@ consumes = ["plan", "notes?"]
         let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
         assert!(resumed.draft.is_none());
         assert!(resumed.args.last().unwrap().contains("changed since"));
+    }
+
+    #[test]
+    fn opencode_sessions_send_instructions_first_and_resume_by_their_own_id() {
+        let (_dir, home, config) = fixture_with("agent = \"opencode\"");
+        let mut ticket = TicketStore::new(home.clone()).create(Some("T-6"), "Open it", "Details", "dev").unwrap();
+        let launcher = SessionLauncher { home: &home, config: &config, lanes_exe: Path::new("lanes") };
+        ArtifactStore::new(&home, &config, "T-6").write("plan", "the plan").unwrap();
+
+        let new = launcher.prepare(&mut ticket, "dev").unwrap();
+        assert_eq!(new.program, "opencode");
+        assert_eq!(new.args[0], "--session");
+        assert!(new.args[1].starts_with("ses_"));
+        assert_eq!(new.args[2], "--prompt");
+        assert!(new.args[3].contains("# Ticket T-6: Open it") && new.args[3].contains("the plan"), "{:?}", new.args);
+        assert!(new.args.iter().all(|a| a != "--model"), "OpenCode ignores model");
+        let record = ticket.session("dev").unwrap();
+        assert_eq!((record.agent, record.agent_session_id.as_deref()), (AgentKind::OpenCode, Some(new.args[1].as_str())));
+
+        let resumed = launcher.prepare(&mut ticket, "dev").unwrap();
+        assert_eq!(resumed.args, ["--session", new.args[1].as_str()]);
+        assert_eq!(resumed.session_id, new.session_id);
     }
 
     #[test]

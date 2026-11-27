@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::agent::{self, AgentKind, TranscriptSource};
 use crate::assistant;
+use crate::config::BoardConfig;
 use crate::paths::LanesHome;
 use crate::state::{AgentStatus, StateStore};
 use crate::ticket::{Ticket, TicketStore};
@@ -42,14 +43,16 @@ pub struct DeleteReport {
     pub removed_state_files: usize,
 }
 
-/// Every Claude session Lanes knows about: linked from tickets (on the board or archived), the assistant, or only from state files.
+/// Every session Lanes knows about: linked from tickets (on the board or archived), the assistant, or only from state files.
 pub fn inventory(home: &LanesHome) -> Result<Vec<SessionInfo>> {
     let mut sessions = linked_sessions(home)?;
     let known: Vec<Uuid> = sessions.iter().map(|s| s.id).collect();
     sessions.extend(state_session_ids(home).into_iter().filter(|id| !known.contains(id)).map(|id| bare(id, Owner::Unlinked, None, 0, AgentKind::Claude, id.to_string())));
     let states = StateStore::new(home.clone());
+    let config = BoardConfig::load(home).ok();
     for session in &mut sessions {
-        enrich(home, &states, session);
+        let program = config.as_ref().map(|c| c.agent_program(session.agent)).unwrap_or_default();
+        enrich(home, &states, session, &program);
     }
     sessions.sort_by_key(|s| std::cmp::Reverse(s.last_active));
     Ok(sessions)
@@ -123,7 +126,7 @@ fn bare(id: Uuid, owner: Owner, cwd: Option<PathBuf>, last_active: u64, agent: A
     SessionInfo { id, owner, cwd, last_active, status: None, agent, agent_session_id, transcript: None, transcript_bytes: 0 }
 }
 
-fn enrich(home: &LanesHome, states: &StateStore, session: &mut SessionInfo) {
+fn enrich(home: &LanesHome, states: &StateStore, session: &mut SessionInfo, program: &str) {
     let hook = states.hook(&session.id);
     let status_at = states.status(&session.id).map(|s| s.at);
     let settings_at = modified_secs(&home.session_settings_file(&session.id));
@@ -131,7 +134,7 @@ fn enrich(home: &LanesHome, states: &StateStore, session: &mut SessionInfo) {
     session.last_active = [Some(session.last_active), hook.as_ref().map(|h| h.at), status_at, settings_at].into_iter().flatten().max().unwrap_or(0);
     let reported = hook.and_then(|h| h.transcript_path);
     let cwd = session.cwd.clone().unwrap_or_default();
-    let source = TranscriptSource { agent_session_id: &session.agent_session_id, cwd: &cwd, reported_path: reported.as_deref() };
+    let source = TranscriptSource { program, agent_session_id: &session.agent_session_id, cwd: &cwd, reported_path: reported.as_deref() };
     session.transcript = agent::get(session.agent).transcript_file(&source);
     session.transcript_bytes = session.transcript.as_deref().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()).unwrap_or(0);
 }
