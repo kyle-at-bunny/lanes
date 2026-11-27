@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::jira::JiraLink;
+use crate::link::TicketLink;
 use crate::paths::{LanesHome, now_unix, write_atomic};
 use crate::timeline::{self, EventKind};
 
@@ -24,8 +24,9 @@ pub struct Ticket {
     pub history: Vec<Move>,
     #[serde(default)]
     pub sessions: BTreeMap<String, SessionRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jira: Option<JiraLink>,
+    /// The work item in the team's tracker; older tickets stored it as `jira`.
+    #[serde(default, alias = "jira", skip_serializing_if = "Option::is_none")]
+    pub link: Option<TicketLink>,
     /// Per-column working folders, taking precedence over `cwd` for that column.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub column_cwd: BTreeMap<String, String>,
@@ -153,18 +154,11 @@ impl TicketStore {
             history: vec![Move { from: None, to: column.to_string(), at: now_unix() }],
             cwd: None,
             sessions: BTreeMap::new(),
-            jira: None,
+            link: None,
             column_cwd: BTreeMap::new(),
         };
         self.save(&ticket)?;
         timeline::record(&self.home, &ticket.id, EventKind::Created, format!("created in {column}"))?;
-        Ok(ticket)
-    }
-
-    pub fn create_linked(&self, id: &str, title: &str, description: &str, column: &str, link: JiraLink) -> Result<Ticket> {
-        let mut ticket = self.create(Some(id), title, description, column)?;
-        ticket.jira = Some(link);
-        self.save(&ticket)?;
         Ok(ticket)
     }
 

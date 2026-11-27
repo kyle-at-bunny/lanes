@@ -31,7 +31,6 @@ mod assistant;
 mod description;
 mod detail_split;
 mod folders;
-mod jira_import;
 mod lifecycle;
 mod pr_status;
 mod sessions_view;
@@ -128,7 +127,6 @@ pub struct LanesApp {
     cleanup_confirm: Option<CleanupPlan>,
     show_archive: bool,
     archived: Vec<Ticket>,
-    jira_form: Option<jira_import::JiraForm>,
     /// Ticket files that failed to load on the last reload, so each problem is shown once rather than every tick.
     unreadable_tickets: Vec<String>,
     assistant: Option<Entity<TerminalView>>,
@@ -174,7 +172,6 @@ impl LanesApp {
             cleanup_confirm: None,
             show_archive: false,
             archived: Vec::new(),
-            jira_form: None,
             unreadable_tickets: Vec::new(),
             assistant: None,
             show_assistant: false,
@@ -468,7 +465,6 @@ impl LanesApp {
             folder: cx.new(|cx| InputState::new(window, cx).placeholder("Working folder (optional, all stages)")),
         };
         form.title.update(cx, |state, cx| state.focus(window, cx));
-        self.jira_form = None;
         self.new_ticket = Some(form);
         cx.notify();
     }
@@ -576,7 +572,6 @@ impl LanesApp {
             .border_color(cx.theme().border)
             .child(div().font_weight(FontWeight::BOLD).child("Lanes"))
             .child(Button::new("new-ticket").label("New ticket").primary().small().on_click(cx.listener(|this, _, window, cx| this.show_new_ticket(window, cx))))
-            .child(Button::new("from-jira").label("From Jira").outline().small().on_click(cx.listener(|this, _, window, cx| this.show_jira_import(window, cx))))
             .child({
                 let button = Button::new("assistant").label("Assistant").small().tooltip("A Claude session that can operate and reconfigure this board");
                 let button = if self.show_assistant { button.primary() } else { button.outline() };
@@ -703,7 +698,6 @@ impl LanesApp {
             .when_some(column.cwd.clone(), |this, cwd| this.child(div().text_xs().text_color(theme.muted_foreground).child(cwd)))
             .when(column.id == self.board.config.first_column().id, |this| {
                 this.when_some(self.render_new_ticket_form(window, cx), |this, form| this.child(keep_clicks("new-ticket-form", form)))
-                    .when_some(self.render_jira_form(cx), |this, form| this.child(keep_clicks("jira-form", form)))
             })
             .child(v_flex().id(SharedString::from(format!("cards-{}", column.id))).flex_1().gap_2().overflow_y_scroll().children(cards))
     }
@@ -839,15 +833,15 @@ impl LanesApp {
                     }))),
             )
             .child(div().font_weight(FontWeight::SEMIBOLD).child(ticket.title.clone()))
-            .when_some(ticket.jira.clone(), |this, jira| {
+            .when_some(ticket.link.clone(), |this, link| {
                 this.child(
                     h_flex().child(
-                        Button::new("open-jira")
-                            .label(format!("Open {} in Jira", jira.key))
+                        Button::new("open-link")
+                            .label(format!("Open {}", link.key))
                             .link()
                             .xsmall()
-                            .tooltip(jira.url.clone())
-                            .on_click(move |_, _, cx| cx.open_url(&jira.url)),
+                            .tooltip(link.url.clone())
+                            .on_click(move |_, _, cx| cx.open_url(&link.url)),
                     ),
                 )
             })
@@ -1063,24 +1057,24 @@ impl LanesApp {
     }
 }
 
-/// The ticket id, plus its linked Jira key as a link that opens the issue without selecting the card.
+/// The ticket id, plus its work item's key as a link that opens it without selecting the card.
 fn card_id_label(ticket: &Ticket, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let id = div().text_color(theme.muted_foreground).child(ticket.id.clone());
-    let Some(jira) = ticket.jira.clone() else {
+    let Some(work_item) = ticket.link.clone() else {
         return id.text_xs().into_any_element();
     };
     let link = div()
-        .id(SharedString::from(format!("jira-link-{}", ticket.id)))
+        .id(SharedString::from(format!("work-item-link-{}", ticket.id)))
         .text_color(theme.info)
         .cursor_pointer()
         .hover(|style| style.underline())
-        .child(jira.key.clone())
+        .child(work_item.key.clone())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
-            cx.open_url(&jira.url);
+            cx.open_url(&work_item.url);
         });
-    let same_key = ticket.jira.as_ref().is_some_and(|j| j.key.eq_ignore_ascii_case(&ticket.id));
+    let same_key = ticket.link.as_ref().is_some_and(|l| l.key.eq_ignore_ascii_case(&ticket.id));
     h_flex().gap_1().text_xs().when(!same_key, |this| this.child(id)).child(link).into_any_element()
 }
 

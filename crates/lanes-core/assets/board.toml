@@ -95,13 +95,6 @@ command = 'start "" .'
 label = "Open in VS Code"
 command = "code ."
 
-# Jira import ("From Jira" button). The API token is read from the env var named by
-# token_env (default LANES_JIRA_TOKEN), never from this file. Restart Lanes after setting it.
-# [jira]
-# site = "https://your-site.atlassian.net"
-# email = "you@company.com"
-# open_issues_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-
 # [[columns.actions]]   (place directly after a [[columns]] entry, e.g. dev)
 # label = "Git status"
 # command = "git status --short --branch"

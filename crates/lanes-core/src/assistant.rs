@@ -100,7 +100,7 @@ mod tests {
         let prompt = std::fs::read_to_string(home.state_dir().join("assistant.system.md")).unwrap();
         assert!(prompt.contains("C:/bin/lanes.exe --home") && prompt.contains("board.toml"));
         assert!(prompt.contains("{{ ticket.id }}"), "literal template syntax survives rendering");
-        assert!(prompt.contains("You are the Lanes board assistant") && prompt.contains("--jira <browse URL>"), "user prompt then built-in reference");
+        assert!(prompt.contains("You are the Lanes board assistant") && prompt.contains("--link <work item URL>"), "user prompt then built-in reference");
         assert!(home.resolve(PROMPT_FILE).exists());
 
         let again = prepare(&home, &config, exe).unwrap();

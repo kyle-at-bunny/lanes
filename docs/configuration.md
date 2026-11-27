@@ -20,7 +20,7 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 - [`[[columns]]`](#columns)
 - [Prompt templates](#prompt-templates)
 - [Actions and cleanup commands](#actions-and-cleanup-commands)
-- [`[jira]`](#jira)
+- [Work item links](#work-item-links)
 
 ## `[defaults]`
 
@@ -30,7 +30,7 @@ Lanes reloads `board.toml` automatically when it changes. If the new file is inv
 | `model` | none | Default `--model` for every session (e.g. `"opus"`, `"sonnet"`). |
 | `effort` | none | Default `--effort` for every session. |
 | `terminal` | `"embedded"` | `"embedded"` runs sessions inside Lanes; `"external"` opens each one as a Windows Terminal tab. |
-| `start` | `"wait"` | How a new session starts. `"wait"` puts the ticket brief (title, description, Jira link, inputs from earlier stages) into the system prompt and opens Claude on an empty input box, so you set the first task. `"prompt"` sends the brief as the first message, so Claude starts working straight away. Columns can override it. |
+| `start` | `"wait"` | How a new session starts. `"wait"` puts the ticket brief (title, description, work item link, inputs from earlier stages) into the system prompt and opens Claude on an empty input box, so you set the first task. `"prompt"` sends the brief as the first message, so Claude starts working straight away. Columns can override it. |
 | `kickoff_inline_limit` | `6000` | With `start = "prompt"`, briefs longer than this many characters are written to a file, and Claude is asked to read it. |
 | `theme` | `"system"` | `"system"`, `"light"` or `"dark"`. The top-bar button updates this. |
 | `terminal_theme` | `"match"` | `"match"` follows the app theme; `"dark"` keeps terminals dark in light mode. |
@@ -116,7 +116,7 @@ When a ticket's session for a stage is first created, Lanes picks its folder fro
 2. **The ticket's folder for all stages** (`cwd` in `ticket.toml`).
 3. **The column's `cwd`** in `board.toml`.
 
-All three are templates, using `ticket.id`, `ticket.title`, `ticket.jira_key`, `ticket.jira_url`, `column.id` and `column.title`, and `~` is expanded. The folder must exist when the session starts.
+All three are templates, using `ticket.id`, `ticket.title`, `ticket.link_key`, `ticket.link_url`, `column.id` and `column.title`, and `~` is expanded. The folder must exist when the session starts.
 
 Set ticket folders in three places:
 - the ticket panel ("New sessions start in … **Change**", then **All stages** or **<Stage> only**);
@@ -153,7 +153,7 @@ Prompts are [minijinja](https://docs.rs/minijinja) templates. Lanes adds two gen
 | Variable | Available in | Value |
 | --- | --- | --- |
 | `ticket.id`, `ticket.title`, `ticket.description` | prompts, `reentry`, `handoff`, actions | The ticket |
-| `ticket.jira_url` | prompts, `reentry`, `handoff`, actions | The linked Jira issue URL, if any |
+| `ticket.link_url`, `ticket.link_key` | prompts, `reentry`, `handoff`, actions | The linked work item's URL and key, if any (`ticket.jira_url` and `ticket.jira_key` still work) |
 | `column.id`, `column.title` | prompts, `reentry`, `handoff`, actions | The current column |
 | `from` | `reentry` | Title of the column the ticket came back from |
 | `changed` | `reentry` | List of input artifact names that changed |
@@ -164,7 +164,7 @@ Example `prompts/dev.md`:
 
 ```jinja
 You are in the DEVELOPMENT stage for ticket {{ ticket.id }}: {{ ticket.title }}.
-{% if ticket.jira_url %}The Jira issue is {{ ticket.jira_url }}.{% endif %}
+{% if ticket.link_url %}The work item is {{ ticket.link_url }}.{% endif %}
 
 Implement the agreed plan on a dedicated branch. If review notes are present, address them first.
 ```
@@ -195,37 +195,20 @@ cwd = "~/projects/my-app"
 cleanup = "git worktree remove --force ../wt-{{ ticket.id }}"
 ```
 
-## `[jira]`
+## Work item links
 
-Tickets can be linked to Jira issues. Lanes only reads from Jira and never changes issues. There are two ways to create linked tickets.
+A ticket can link to its work item in whatever tracker you use: Jira, Azure DevOps, GitHub or GitLab issues, Linear, or anything else with a URL. Lanes has no tracker integration of its own and never talks to a tracker. It stores the link and shows it:
+- the key as a link on the board card, and **Open <key>** in the ticket panel;
+- `Work item <key>: <url>` in every stage's ticket brief;
+- `ticket.link_url` and `ticket.link_key` in templates.
 
-**Without an API token, through the board assistant.** If your Claude Code has Jira tools, such as an Atlassian MCP server, ask the **Assistant**:
-- "import my open Jira issues";
+Set it with `lanes ticket create … --link <url>` or `lanes ticket edit <ID> --link <url>` (`--link ""` removes it). The key is worked out from Jira (`/browse/PROJ-12`), Azure DevOps (`/_workitems/edit/4521` or `?workitem=4521`), GitHub and GitLab (`/issues/12`) and Linear (`/issue/ENG-42`) URLs. For anything else, add `--link-key <KEY>`.
+
+**Importing work items.** Give Claude Code your tracker's MCP server (for example Atlassian's for Jira, or Azure DevOps'), then ask the **Assistant**:
+- "import my open work items";
 - "create a ticket for PROJ-123";
-- "link T-007 to PROJ-88".
+- "link T-007 to https://dev.azure.com/org/project/_workitems/edit/4521".
 
-It reads the issue with its own tools, then runs `lanes ticket create … --jira <url>` or `lanes ticket edit … --jira <url>`. Lanes needs no token. Setting just `site` lets bare keys like `PROJ-123` work in `--jira`:
+It reads the items with its own tools, then runs `lanes ticket create … --link <url>` or `lanes ticket edit … --link <url>`. Lanes needs no token.
 
-```toml
-[jira]
-site = "https://your-site.atlassian.net"
-```
-
-**With an API token, through the From Jira button.** Lanes calls the Jira API itself:
-
-```toml
-[jira]
-site = "https://your-site.atlassian.net"
-email = "you@example.com"
-token_env = "LANES_JIRA_TOKEN"     # name of the env var holding an API token (default shown)
-open_issues_jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
-```
-
-Create an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>, store it in the environment variable named by `token_env`, then restart Lanes. The token is never written to disk by Lanes. Without a token, **From Jira** points you to the assistant instead.
-
-Imported tickets:
-- use the issue key as their ID and the summary as their title;
-- get the description converted to plain text;
-- show an **Open in Jira** link.
-
-The first prompt in each stage includes `Jira: <url>`. Issues that already exist as tickets, on the board or archived, are skipped.
+Boards and tickets from earlier versions keep working: a `[jira]` section in `board.toml` is ignored, and tickets linked to Jira issues load as work item links.

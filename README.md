@@ -36,7 +36,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 - **Embedded terminal.** Each `claude` session runs in a GPU-rendered terminal backed by ConPTY and `alacritty_terminal`, with selection, scrollback and bracketed paste. If you'd rather use Windows Terminal tabs, set `terminal = "external"`.
 - **Live status at a glance.** Cards show whether a session is working, needs input or is waiting on you, plus its context-window usage. The top bar tracks your 5-hour and weekly plan limits.
 - **Board assistant.** A dedicated Claude session that can operate the board for you: create and move tickets, add a column, rewrite a stage's prompt. Config changes hot-reload.
-- **Jira import.** Turn issue keys, or your open issues, into tickets. The issue key appears as a link on the board card, the ticket panel links to the issue, and the link is passed to Claude. No API token is needed if the board assistant has Jira tools (e.g. an Atlassian MCP server).
+- **Works with any tracker.** Link a ticket to its Jira, Azure DevOps, GitHub, GitLab or Linear work item (or anything with a URL). The key appears as a link on the card and the URL is passed to Claude. To import work items, give the board assistant your tracker's MCP server and ask it. Lanes holds no tracker credentials.
 - **Editable tickets.** The ticket panel shows the full description, scrolling when it's long, with **Edit description** to change it in place.
 - **Resizable ticket panel.** Drag the divider, or switch between a wide and a narrow panel. Drag the line under the ticket details to give the session more height.
 - **Timeline and transcripts.** See a ticket's moves, sessions, artifact writes and actions, and read any stage's conversation without reviving it.
@@ -50,7 +50,7 @@ Lanes is a task manager, not an autopilot. You decide when a ticket moves. Every
 <table>
   <tr>
     <td><img src="docs/images/ticket-artifacts.png" alt="Ticket panel's Artifacts tab showing the Dev stage's rendered plan input and its optional inputs"></td>
-    <td><img src="docs/images/ticket-timeline.png" alt="Ticket panel with the Jira link, actions and the timeline of moves, sessions and artifact writes"></td>
+    <td><img src="docs/images/ticket-timeline.png" alt="Ticket panel with the work item link, actions and the timeline of moves, sessions and artifact writes"></td>
   </tr>
   <tr>
     <td align="center"><sub>Artifacts tab: a stage's inputs and outputs</sub></td>
@@ -91,7 +91,7 @@ cargo build --release -p lanes-app
 ### First steps
 
 1. **Point the columns at your code.** On first run Lanes creates a starter board in `~/.lanes/board.toml`. Click **Edit board.toml**, set each stage's `cwd` to the folder its sessions should run in, and save. The board reloads automatically.
-2. **Create a ticket.** Click **New ticket** (or **From Jira**), and describe the work.
+2. **Create a ticket.** Click **New ticket**, and describe the work. (Or ask the board assistant to import work items from your tracker.)
 3. **Start working.** Drag the card to **Plan / Arch**, open it, and click **Start session**. A Claude session starts in that column's folder with the planning prompt and your ticket. Work with it until `plan.md` is written.
 4. **Move it on.** Drag the card to **Dev** and click **Start session** again. A *new* session starts, seeded with the plan. Move the card back to Plan later and **Resume session** brings back the original planning conversation.
 
@@ -177,7 +177,7 @@ model = "opus"
 See [docs/configuration.md](docs/configuration.md) for every option, including:
 - prompt template variables;
 - action buttons and cleanup commands;
-- Jira, themes and terminal settings.
+- work item links, themes and terminal settings.
 
 Run `lanes config schema --write` once for completion and validation in editors that read `#:schema` (such as VS Code with Even Better TOML). New boards get it automatically, and `lanes config docs` prints the reference for your installed version.
 
@@ -239,7 +239,7 @@ They stop, but each is resumable by ID from its card, and the conversation is in
 Only through artifacts. That's the point. The **Transcript** tab lets *you* read any stage's conversation.
 
 **Where is my data?**
-In `~/.lanes` (board, prompts, tickets, artifacts, Lanes state) and in Claude Code's own `~/.claude/projects` (session transcripts). Nothing is sent anywhere except by Claude Code itself and, if configured, the Jira API.
+In `~/.lanes` (board, prompts, tickets, artifacts, Lanes state) and in Claude Code's own `~/.claude/projects` (session transcripts). Nothing is sent anywhere except by Claude Code itself (including any MCP servers you give it).
 
 ## Contributing
 

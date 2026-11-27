@@ -6,7 +6,7 @@ use clap::{Args, Subcommand};
 use crate::board::Board;
 use crate::config::BoardConfig;
 use crate::config_schema;
-use crate::jira::{self, JiraLink};
+use crate::link::{self, TicketLink};
 use crate::paths::LanesHome;
 use crate::ticket::Ticket;
 use crate::workdir;
@@ -62,16 +62,19 @@ pub struct SettingsArgs {
     /// Folder for one stage, as COLUMN=FOLDER ("COLUMN=" clears it). Repeatable.
     #[arg(long = "column-cwd", value_name = "COLUMN=FOLDER")]
     pub column_cwd: Vec<String>,
-    /// Link the ticket to a Jira issue: a browse URL, or a key when [jira] site is set ("" removes the link).
-    #[arg(long)]
-    pub jira: Option<String>,
+    /// Link the ticket to its work item in your tracker: the item's URL ("" removes the link).
+    #[arg(long, alias = "jira")]
+    pub link: Option<String>,
+    /// The short name shown for the link, when it can't be worked out from the URL (e.g. "SUP-12").
+    #[arg(long = "link-key")]
+    pub link_key: Option<String>,
 }
 
 /// Validated settings, checked before anything is written.
 struct TicketChanges {
     cwd: Option<String>,
     column_cwd: Vec<(String, String)>,
-    jira: Option<Option<JiraLink>>,
+    link: Option<Option<TicketLink>>,
 }
 
 impl TicketChanges {
@@ -82,13 +85,12 @@ impl TicketChanges {
             require_column(config, column.trim())?;
             column_cwd.push((column.trim().to_string(), folder.to_string()));
         }
-        let site = config.jira.as_ref().map(|j| j.site.as_str());
-        let jira = match settings.jira.as_deref().map(str::trim) {
+        let link = match settings.link.as_deref().map(str::trim) {
             None => None,
             Some("") => Some(None),
-            Some(input) => Some(Some(jira::link_from(input, site)?)),
+            Some(url) => Some(Some(link::link_from(url, settings.link_key.as_deref())?)),
         };
-        Ok(Self { cwd: settings.cwd.clone(), column_cwd, jira })
+        Ok(Self { cwd: settings.cwd.clone(), column_cwd, link })
     }
 
     fn apply(self, ticket: &mut Ticket) {
@@ -98,8 +100,8 @@ impl TicketChanges {
         for (column, folder) in &self.column_cwd {
             ticket.set_column_cwd(column, folder);
         }
-        if let Some(link) = self.jira {
-            ticket.jira = link;
+        if let Some(link) = self.link {
+            ticket.link = link;
         }
     }
 
@@ -220,8 +222,8 @@ fn list_tickets(board: &Board, column: Option<&str>, json: bool) -> Result<Strin
 
 fn show_ticket(board: &Board, ticket: &Ticket) -> String {
     let mut out = format!("{}: {}\ncolumn: {}\n", ticket.id, ticket.title, board.column_title(&ticket.column));
-    if let Some(jira) = &ticket.jira {
-        let _ = writeln!(out, "jira: {}", jira.url);
+    if let Some(link) = &ticket.link {
+        let _ = writeln!(out, "link: {} {}", link.key, link.url);
     }
     if !ticket.description.is_empty() {
         let _ = writeln!(out, "description:\n{}", ticket.description);
@@ -279,26 +281,44 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn create_and_edit_link_jira_and_bad_links_create_nothing() {
+    fn create_and_edit_set_links_and_bad_links_create_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = LanesHome::new(dir.path());
+        std::fs::write(home.board_file(), "[[columns]]\nid = \"backlog\"\n").unwrap();
+        let board = Board::open(home.clone(), PathBuf::from("lanes")).unwrap();
+        let with_link = |value: &str, key: Option<&str>| SettingsArgs { link: Some(value.into()), link_key: key.map(str::to_string), ..Default::default() };
+
+        let changes = TicketChanges::parse(&board.config, &with_link("https://dev.azure.com/org/p/_workitems/edit/45", None)).unwrap();
+        let mut ticket = board.tickets.create(Some("T-5"), "t", "", "backlog").unwrap();
+        changes.apply(&mut ticket);
+        board.tickets.save(&ticket).unwrap();
+        assert_eq!(board.tickets.load("T-5").unwrap().link.unwrap().key, "#45");
+
+        edit_ticket(&board, "T-5", None, None, &with_link("", None)).unwrap();
+        assert!(board.tickets.load("T-5").unwrap().link.is_none());
+        edit_ticket(&board, "T-5", None, None, &with_link("https://help.example/case/77", Some("SUP-77"))).unwrap();
+        assert_eq!(board.tickets.load("T-5").unwrap().link.unwrap().key, "SUP-77");
+
+        assert!(TicketChanges::parse(&board.config, &with_link("PROJ-5", None)).is_err());
+        assert_eq!(board.tickets.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn old_jira_links_and_board_sections_still_load() {
         let dir = tempfile::tempdir().unwrap();
         let home = LanesHome::new(dir.path());
         std::fs::write(home.board_file(), "[jira]\nsite = \"https://acme.atlassian.net\"\n[[columns]]\nid = \"backlog\"\n").unwrap();
         let board = Board::open(home.clone(), PathBuf::from("lanes")).unwrap();
-        let with_jira = |value: &str| SettingsArgs { jira: Some(value.into()), ..Default::default() };
-
-        let changes = TicketChanges::parse(&board.config, &with_jira("PROJ-5")).unwrap();
-        let mut ticket = board.tickets.create(Some("PROJ-5"), "t", "", "backlog").unwrap();
-        changes.apply(&mut ticket);
+        board.tickets.create(Some("T-1"), "t", "", "backlog").unwrap();
+        let file = home.ticket_file("T-1");
+        let old = std::fs::read_to_string(&file).unwrap() + "\n[jira]\nkey = \"PROJ-1\"\nurl = \"https://acme.atlassian.net/browse/PROJ-1\"\n";
+        std::fs::write(&file, old).unwrap();
+        let mut ticket = board.tickets.load("T-1").unwrap();
+        assert_eq!(ticket.link.as_ref().unwrap().key, "PROJ-1");
         board.tickets.save(&ticket).unwrap();
-        assert_eq!(board.tickets.load("PROJ-5").unwrap().jira.unwrap().url, "https://acme.atlassian.net/browse/PROJ-5");
-
-        edit_ticket(&board, "PROJ-5", None, None, &with_jira("")).unwrap();
-        assert!(board.tickets.load("PROJ-5").unwrap().jira.is_none());
-        edit_ticket(&board, "PROJ-5", None, None, &with_jira("https://other.atlassian.net/browse/OPS-9")).unwrap();
-        assert_eq!(board.tickets.load("PROJ-5").unwrap().jira.unwrap().key, "OPS-9");
-
-        assert!(TicketChanges::parse(&board.config, &with_jira("not a key")).is_err());
-        assert_eq!(board.tickets.list().unwrap().len(), 1);
+        ticket = board.tickets.load("T-1").unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("[link]"));
+        assert_eq!(ticket.link.unwrap().url, "https://acme.atlassian.net/browse/PROJ-1");
     }
 
     #[test]

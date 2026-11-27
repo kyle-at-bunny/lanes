@@ -39,11 +39,11 @@ impl PromptBuilder<'_> {
         Ok(prompt)
     }
 
-    /// The ticket brief: title, Jira link, description and inputs from earlier stages.
+    /// The ticket brief: title, tracker link, description and inputs from earlier stages.
     pub fn kickoff(&self) -> Result<String> {
         let mut text = format!("# Ticket {}: {}\n\n", self.ticket.id, self.ticket.title);
-        if let Some(jira) = &self.ticket.jira {
-            let _ = write!(text, "Jira: {}\n\n", jira.url);
+        if let Some(link) = &self.ticket.link {
+            let _ = write!(text, "Work item {}: {}\n\n", link.key, link.url);
         }
         if !self.ticket.description.is_empty() {
             let _ = write!(text, "{}\n\n", self.ticket.description);
@@ -87,7 +87,10 @@ impl PromptBuilder<'_> {
                 id => &self.ticket.id,
                 title => &self.ticket.title,
                 description => &self.ticket.description,
-                jira_url => self.ticket.jira.as_ref().map(|j| j.url.as_str()),
+                link_key => self.ticket.link.as_ref().map(|l| l.key.as_str()),
+                link_url => self.ticket.link.as_ref().map(|l| l.url.as_str()),
+                jira_key => self.ticket.link.as_ref().map(|l| l.key.as_str()),
+                jira_url => self.ticket.link.as_ref().map(|l| l.url.as_str()),
             },
             column => context! { id => &self.column.id, title => self.column.title() },
             from => from.flatten(),
@@ -249,12 +252,12 @@ consumes = ["plan", "spec", "branch", "notes?", "mockup?"]
         let builder = PromptBuilder { home: &home, config: &config, ticket: &ticket, column: config.column("dev").unwrap(), lanes_exe: Path::new("lanes") };
         let kickoff = builder.kickoff().unwrap();
         assert!(kickoff.contains("# Ticket T-9: Fix it"));
-        assert!(!kickoff.contains("Jira:"));
+        assert!(!kickoff.contains("Work item"));
 
         let mut linked = ticket.clone();
-        linked.jira = Some(crate::jira::JiraLink { key: "PROJ-1".into(), url: "https://x/browse/PROJ-1".into() });
+        linked.link = Some(crate::link::TicketLink { key: "PROJ-1".into(), url: "https://x/browse/PROJ-1".into() });
         let linked_builder = PromptBuilder { ticket: &linked, ..builder };
-        assert!(linked_builder.kickoff().unwrap().contains("# Ticket T-9: Fix it\n\nJira: https://x/browse/PROJ-1\n\n"));
+        assert!(linked_builder.kickoff().unwrap().contains("# Ticket T-9: Fix it\n\nWork item PROJ-1: https://x/browse/PROJ-1\n\n"));
         assert!(kickoff.contains("Step one"));
         assert!(kickoff.contains("spec.md\">a long spec (read the file)"));
         assert!(kickoff.contains("name=\"branch\" status=\"missing\""));

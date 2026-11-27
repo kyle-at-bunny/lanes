@@ -45,13 +45,15 @@ fn template_for<'a>(ticket: &'a Ticket, column: &'a ColumnDef) -> Option<(&'a st
 }
 
 fn render(template: &str, ticket: &Ticket, column: &ColumnDef) -> Result<String> {
-    let jira = ticket.jira.as_ref();
+    let link = ticket.link.as_ref();
     let ctx = context! {
         ticket => context! {
             id => &ticket.id,
             title => &ticket.title,
-            jira_key => jira.map(|j| j.key.as_str()),
-            jira_url => jira.map(|j| j.url.as_str()),
+            link_key => link.map(|l| l.key.as_str()),
+            link_url => link.map(|l| l.url.as_str()),
+            jira_key => link.map(|l| l.key.as_str()),
+            jira_url => link.map(|l| l.url.as_str()),
         },
         column => context! { id => &column.id, title => column.title() },
     };

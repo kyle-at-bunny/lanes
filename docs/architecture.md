@@ -14,7 +14,7 @@ Lanes is a desktop app that supervises ordinary `claude` CLI sessions. It never 
 
 ```
 crates/
-  lanes-core   config, tickets, artifacts, prompts, session launch/resume, state, Jira, cleanup, CLI   (no UI)
+  lanes-core   config, tickets, artifacts, prompts, session launch/resume, state, work item links, cleanup, CLI   (no UI)
   lanes-app    GPUI desktop app: board, terminal, tray, theme; builds the `lanes` binary
 ```
 
@@ -32,7 +32,7 @@ input_hashes = { plan = "3a9c…" }
 ```
 
 - **First entry** to a column:
-  1. Lanes generates a UUID and builds the *ticket brief*: title, Jira link, description and the *Inputs from earlier stages*.
+  1. Lanes generates a UUID and builds the *ticket brief*: title, work item link, description and the *Inputs from earlier stages*.
   2. It renders the column's prompt plus a generated *Stage outputs* section into `sessions/<column>.system.md`. With `start = "wait"` (the default), the brief goes in there too.
   3. It launches:
 
@@ -68,7 +68,7 @@ The app watches `board.toml`'s modification time. When it changes, the file is p
 The board assistant is a regular Claude session with:
 - a prompt in two parts:
   - the user's editable `prompts/assistant.md` (role and house rules);
-  - a built-in reference of the CLI, the config format and the Jira workflow, compiled into Lanes so it always matches the installed version;
+  - a built-in reference of the CLI, the config format and how to import work items with tracker tools, compiled into Lanes so it always matches the installed version;
 - the board folder as its working directory;
 - `--allowedTools "Bash(<lanes> --home <board>:*)"`, so it can run the CLI without prompting. Its file edits still go through Claude Code's normal approval.
 

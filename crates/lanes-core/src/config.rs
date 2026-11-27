@@ -21,40 +21,6 @@ pub struct BoardConfig {
     /// Actions shown on every ticket, in addition to its column's own.
     #[serde(default)]
     pub actions: Vec<ActionDef>,
-    /// Link tickets to Jira issues and import them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jira: Option<JiraConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-pub struct JiraConfig {
-    /// e.g. https://your-site.atlassian.net
-    pub site: String,
-    /// Only needed for the API-token import ("From Jira"); linking tickets needs just `site`.
-    #[serde(default)]
-    pub email: String,
-    /// Name of the env var holding the API token; the token itself never goes in board.toml.
-    #[serde(default = "default_token_env")]
-    pub token_env: String,
-    /// JQL for the "my open issues" picker.
-    #[serde(default = "default_open_issues_jql")]
-    pub open_issues_jql: String,
-}
-
-impl JiraConfig {
-    /// Whether the API-token import can work: an email plus a token in the configured env var.
-    pub fn has_api_credentials(&self) -> bool {
-        let token = std::env::var(&self.token_env).ok().filter(|t| !t.trim().is_empty());
-        !self.email.trim().is_empty() && token.is_some()
-    }
-}
-
-fn default_token_env() -> String {
-    "LANES_JIRA_TOKEN".into()
-}
-
-fn default_open_issues_jql() -> String {
-    "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC".into()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
